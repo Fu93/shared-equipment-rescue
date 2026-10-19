@@ -1,425 +1,442 @@
+"""Pure replan engine (plan §10). No I/O, no clocks; all times passed in aware.
+
+Search rules (contract §5.3 / plan §10):
+- Candidate slots start from the ORIGINAL start (clamped up to the 15-min grid),
+  stepping +15min, forward only.
+- Per-booking search order: original equipment first, then the other.
+- Choice key: (earliest_start, original-equipment-first tiebreak).
+- A slot is valid when ALL hold:
+    1. within equipment operating hours (open <= start, end <= close),
+    2. not overlapping any outage on that equipment (never buffer vs outage),
+    3. user has permission for the equipment,
+    4. user free: no overlap with the user's own other bookings,
+    5. no overlap with any other booking on that equipment,
+    6. buffer: >= buffer_minutes gap to the nearest booking before AND after
+       (computed against all occupancy bookings),
+    7. end <= deadline when the booking has one.
+- Occupancy excludes the booking being moved.
+- Unmovable affected bookings are added to unresolved with reason not_movable.
+- earliest_possible: SECOND pass after all movable bookings are placed, using
+  final occupancy, ignoring the target booking's own deadline. If the found
+  finish time exceeds the booking's deadline, status available_after_deadline
+  and would_work_if=["extend deadline to ..."]. Otherwise no_slot_today.
 """
-Shared Equipment Schedule Engine
-Pure Python functions for scheduling without I/O operations.
-All times use Europe/London timezone in ISO 8601 format.
-"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
-from datetime import datetime, timedelta, timezone
-import re
+from datetime import datetime, timedelta
+from typing import List, Optional, Tuple
 
+from .models import Change, EarliestPossible, Reason, UnresolvedEntry
+from .timeutil import LONDON, fmt, overlaps, parse_dt
 
-@dataclass
-class Booking:
-    id: str
-    user_id: str
-    user_name: str
-    equipment_id: str
-    original_start: str  # ISO 8601 with timezone
-    original_end: str
-    current_start: str
-    current_end: str
-    deadline: Optional[str]  # ISO 8601 date-time or just YYYY-MM-DD
-    movable: bool
-    status: str  # 'confirmed', 'blocked', 'unresolved'
-    duration_minutes: int = field(default=60)
+STEP = timedelta(minutes=15)
+DAY_MAX = datetime.max.replace(tzinfo=LONDON)
 
 
 @dataclass
 class Equipment:
     id: str
     name: str
-    unit_id: str
-    available_start: str  # HH:MM
-    available_end: str  # HH:MM
+    available_start: str  # HH:MM local
+    available_end: str  # HH:MM local
     buffer_minutes: int = 15
-    working_days: list = field(default_factory=lambda: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
 
 
 @dataclass
 class Outage:
     id: str
     equipment_id: str
-    start: str  # ISO 8601
+    start: str
     end: str
     reason: str
-    created_at: str
 
 
 @dataclass
-class ReplanPlan:
-    plan_id: str
-    outage_id: str
-    based_on_version: int
-    changes: list = field(default_factory=list)
-    unresolved: list = field(default_factory=list)
-    is_complete: bool = True
+class Booking:
+    id: str
+    user_id: str
+    equipment_id: str
+    start: str  # current_start ISO
+    end: str  # current_end ISO
+    deadline: Optional[str] = None
+    movable: bool = True
+    status: str = "confirmed"
 
 
-def parse_datetime(dt_str: str) -> datetime:
-    """Parse ISO 8601 datetime string to timezone-aware datetime."""
-    # Remove any trailing Z and replace with +00:00
-    dt_str = dt_str.strip()
-    if dt_str.endswith('Z'):
-        dt_str = dt_str[:-1] + '+00:00'
-    
-    # Handle various formats
-    if '+' in dt_str or '-' in dt_str[10:]:  # Check for timezone after date
-        parts = dt_str.rsplit('+', 1) if '+' in dt_str else dt_str.rsplit('-', 1)
-        if len(parts) == 2:
-            base, tz = parts
-            if ':' not in tz and len(tz) <= 5:
-                # Add colon to timezone if missing (e.g., +0100 -> +01:00)
-                if len(tz) == 4:
-                    tz = tz[:2] + ':' + tz[2:]
-                dt_str = base + ('+' if '+' in dt_str else '-') + tz
-    
-    try:
-        return datetime.fromisoformat(dt_str)
-    except ValueError:
-        # Fallback: try parsing without timezone
-        clean_str = re.sub(r'[^\d+\-:.]', '', dt_str)
-        if len(clean_str) >= 19:
-            clean_str = clean_str[:19]
-        return datetime.fromisoformat(clean_str).replace(tzinfo=timezone.utc)
+@dataclass
+class World:
+    equipment: dict  # equipment_id -> Equipment
+    outages: List[Outage]
+    bookings: List[Booking]
+    user_names: dict  # user_id -> display name
+    user_permissions: dict  # equipment_id -> set(user_id) (computed by caller)
+    day_open: dict  # equipment_id -> aware open datetime
+    day_close: dict  # equipment_id -> aware close datetime
 
 
-def format_datetime(dt: datetime) -> str:
-    """Format datetime to ISO 8601 string."""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.isoformat()
+def clone_bookings(bookings: List[Booking]) -> List[Booking]:
+    return [
+        Booking(
+            id=b.id,
+            user_id=b.user_id,
+            equipment_id=b.equipment_id,
+            start=b.start,
+            end=b.end,
+            deadline=b.deadline,
+            movable=b.movable,
+            status=b.status,
+        )
+        for b in bookings
+    ]
 
 
-def get_date_str(dt: datetime) -> str:
-    """Get YYYY-MM-DD string from datetime."""
-    return dt.strftime('%Y-%m-%d')
+def affected_by(outage: Outage, bookings: List[Booking]) -> List[Booking]:
+    os_, oe = parse_dt(outage.start), parse_dt(outage.end)
+    return [
+        b
+        for b in bookings
+        if b.equipment_id == outage.equipment_id
+        and overlaps(parse_dt(b.start), parse_dt(b.end), os_, oe)
+    ]
 
 
-def parse_time(time_str: str) -> tuple:
-    """Parse HH:MM time string to (hour, minute) tuple."""
-    parts = time_str.strip().split(':')
-    return int(parts[0]), int(parts[1])
+def _r(code: str, **kw) -> Reason:
+    return Reason(code=code, **kw)
 
 
-def time_to_datetime(date_str: str, time_str: str, tz='Europe/London') -> datetime:
-    """Combine date and time strings into timezone-aware datetime."""
-    hour, minute = parse_time(time_str)
-    dt = datetime.strptime(date_str, '%Y-%m-%d').replace(hour=hour, minute=minute)
-    # London timezone - will handle DST appropriately
-    if tz == 'Europe/London':
-        # Use naive datetime; Python 3.9+ handles this correctly for comparisons
-        pass
-    return dt
+def _slot_failures(
+    world: World,
+    occupancy: List[Booking],
+    equipment_id: str,
+    user_id: str,
+    start: datetime,
+    end: datetime,
+    moving_id: str,
+    deadline: Optional[datetime],
+) -> List[Reason]:
+    """Reasons why this slot fails. Empty list == placeable."""
+    reasons: List[Reason] = []
+    eq = world.equipment[equipment_id]
 
+    opens_, closes_ = world.day_open[equipment_id], world.day_close[equipment_id]
+    if start < opens_ or end > closes_:
+        reasons.append(
+            _r("outside_operating_hours", opens_=fmt(opens_), closes_=fmt(closes_))
+        )
 
-def find_affected_bookings(
-    bookings: list,
-    outage: Outage,
-    equipment_list: list
-) -> list:
-    """Find all bookings affected by an equipment outage."""
-    affected = []
-    outage_dt_start = parse_datetime(outage.start)
-    outage_dt_end = parse_datetime(outage.end)
-    
-    equip_map = {e.id: e for e in equipment_list}
-    
-    for booking in bookings:
-        if booking.equipment_id != outage.equipment_id:
-            continue
-        
-        book_start = parse_datetime(booking.current_start)
-        book_end = parse_datetime(booking.current_end)
-        
-        # Check overlap: booking overlaps if it starts before outage ends AND ends after outage starts
-        if book_start < outage_dt_end and book_end > outage_dt_start:
-            affected.append(booking)
-    
-    return affected
-
-
-def calculate_unavailable_periods(equipment: Equipment, outage: Optional[Outage], target_date: str) -> list:
-    """Calculate all unavailable periods for equipment on a specific day."""
-    unavailable = []
-    
-    if outage and outage.equipment_id == equipment.id:
-        outage_start = parse_datetime(outage.start)
-        outage_end = parse_datetime(outage.end)
-        unavailable.append((outage_start, outage_end))
-    
-    return unavailable
-
-
-def generate_available_slots(
-    equipment: Equipment,
-    target_date: str,
-    required_duration: int,
-    unavailable_periods: list,
-    existing_bookings: list,
-    allowed_users: set = None
-) -> list:
-    """Generate all available time slots for a given day."""
-    slots = []
-    
-    open_start_hour, open_start_min = parse_time(equipment.available_start)
-    open_end_hour, open_end_min = parse_time(equipment.available_end)
-    
-    open_start = time_to_datetime(target_date, equipment.available_start)
-    open_end = time_to_datetime(target_date, equipment.available_end)
-    
-    # Build occupied periods
-    occupied = []
-    for b in existing_bookings:
-        if b.equipment_id != equipment.id:
-            continue
-        if b.status == 'confirmed':
-            start = parse_datetime(b.current_start)
-            end = parse_datetime(b.current_end)
-            # Add buffer to end
-            end_with_buffer = end + timedelta(minutes=equipment.buffer_minutes)
-            occupied.append((start, end_with_buffer))
-    
-    # Merge unavailable and occupied periods
-    all_blocked = sorted(unavailable_periods + occupied, key=lambda x: x[0])
-    
-    # Find gaps
-    current_pos = open_start
-    for blocked_start, blocked_end in all_blocked:
-        if blocked_start > open_end:
+    for o in world.outages:
+        if o.equipment_id == equipment_id and overlaps(
+            start, end, parse_dt(o.start), parse_dt(o.end)
+        ):
+            reasons.append(_r("equipment_down", until=fmt(parse_dt(o.end))))
             break
-        if blocked_end < open_start:
+
+    if user_id not in world.user_permissions.get(equipment_id, set()):
+        reasons.append(_r("no_permission", equipment_id=equipment_id))
+
+    for b in occupancy:
+        if b.id == moving_id or b.equipment_id != equipment_id:
             continue
-        
-        # Clamp to business hours
-        blocked_start = max(blocked_start, open_start)
-        blocked_end = min(blocked_end, open_end)
-        
-        gap_end = blocked_start
-        if gap_end > current_pos and gap_end - current_pos >= timedelta(minutes=required_duration):
-            slots.append((current_pos, gap_end))
-        
-        current_pos = max(current_pos, blocked_end)
-    
-    # Final gap until close
-    if open_end > current_pos and open_end - current_pos >= timedelta(minutes=required_duration):
-        slots.append((current_pos, open_end))
-    
-    return slots
-
-
-def find_replacement_slot(
-    booking: Booking,
-    equipment_list: list,
-    outage: Optional[Outage],
-    all_bookings: list,
-    target_date: str,
-    prefer_original_equipment: bool = True
-) -> tuple:
-    """
-    Find a replacement slot for a booking.
-    Returns: (slot_start, slot_end, equipment, reasons[]) or (None, None, None, reasons[])
-    """
-    equip_map = {e.id: e for e in equipment_list}
-    reasons = []
-    
-    user_bookings = [b for b in all_bookings if b.user_id == booking.user_id]
-    
-    # Get allowed equipment
-    if prefer_original_equipment and booking.equipment_id in equip_map:
-        allowed_equip_ids = [booking.equipment_id]
-    else:
-        allowed_equip_ids = [e.id for e in equipment_list if e.unit_id == equip_map[booking.equipment_id].unit_id]
-    
-    for equip_id in allowed_equip_ids:
-        equipment = equip_map[equip_id]
-        unavail = calculate_unavailable_periods(equipment, outage, target_date)
-        my_bookings = [b for b in user_bookings if b.equipment_id == equip_id]
-        other_bookings = [b for b in all_bookings if b.user_id != booking.user_id and b.equipment_id == equip_id]
-        
-        # Filter out the booking itself if still on this equipment
-        if booking.equipment_id == equip_id:
-            other_bookings = [b for b in other_bookings if b.id != booking.id]
-        
-        slots = generate_available_slots(
-            equipment, target_date, booking.duration_minutes,
-            unavail, other_bookings
-        )
-        
-        for slot_start, slot_end in slots:
-            duration = (slot_end - slot_start).total_seconds() / 60
-            
-            # Check deadline
-            if booking.deadline:
-                deadline_str = booking.deadline
-                if len(deadline_str) == 10:  # Just date YYYY-MM-DD
-                    deadline_dt = time_to_datetime(deadline_str, '23:59')
-                else:
-                    deadline_dt = parse_datetime(deadline_str)
-                
-                if slot_end > deadline_dt:
-                    deadline_needed = slot_end.strftime('%H:%M')
-                    reasons.append({
-                        "code": "deadline_would_need",
-                        "at_least": deadline_needed
-                    })
-                    continue
-            
-            # Found valid slot
-            return (slot_start, slot_end, equipment, reasons)
-    
-    # No valid slot found
-    if not slots:
-        reasons.append({"code": "no_available_timeslot"})
-    
-    return (None, None, None, reasons)
-
-
-def propose_replan(
-    outage: Outage,
-    affected_bookings: list,
-    equipment_list: list,
-    all_bookings: list,
-    schedule_version: int
-) -> ReplanPlan:
-    """
-    Propose a replan for affected bookings.
-    Returns a ReplanPlan object with proposed changes.
-    """
-    import uuid
-    
-    plan = ReplanPlan(
-        plan_id=f"plan_{uuid.uuid4().hex[:8]}",
-        outage_id=outage.id,
-        based_on_version=schedule_version
-    )
-    
-    # Sort affected bookings by deadline (earliest first)
-    def sort_key(b):
-        if b.deadline:
-            if len(b.deadline) == 10:
-                return parse_datetime(b.deadline + 'T23:59:59')
-            return parse_datetime(b.deadline)
-        return datetime.max.replace(tzinfo=timezone.utc)
-    
-    sorted_bookings = sorted(affected_bookings, key=sort_key)
-    
-    for booking in sorted_bookings:
-        if not booking.movable or booking.status == 'unresolved':
-            plan.unresolved.append({
-                "booking_id": booking.id,
-                "reasons": [{"code": "not_movable"}]
-            })
-            continue
-        
-        new_start, new_end, equipment, reasons = find_replacement_slot(
-            booking, equipment_list, outage, all_bookings,
-            get_date_str(parse_datetime(booking.original_start))
-        )
-        
-        if new_start is None:
-            plan.unresolved.append({
-                "booking_id": booking.id,
-                "reasons": reasons,
-                "earliest_possible": calculate_earliest_possible(
-                    booking, equipment_list, outage, all_bookings
+        bs, be = parse_dt(b.start), parse_dt(b.end)
+        if overlaps(start, end, bs, be):
+            if b.user_id == user_id:
+                reasons.append(
+                    _r("user_busy", booking_id=b.id, start=b.start, end=b.end)
                 )
-            })
-        else:
-            plan.changes.append({
-                "booking_id": booking.id,
-                "user_name": booking.user_name,
-                "original_equip": booking.equipment_id,
-                "original_start": format_datetime(parse_datetime(booking.original_start)),
-                "original_end": format_datetime(parse_datetime(booking.original_end)),
-                "new_equip": equipment.id,
-                "new_start": format_datetime(new_start),
-                "new_end": format_datetime(new_end),
-                "reasons": reasons or [{"code": "outage_impacted"}]
-            })
-    
-    plan.is_complete = len(plan.unresolved) == 0
-    
-    return plan
+            else:
+                reasons.append(
+                    _r("blocked_by_booking", booking_id=b.id, start=b.start, end=b.end)
+                )
+
+    buf = timedelta(minutes=eq.buffer_minutes)
+    before_end: Optional[datetime] = None
+    after_start: Optional[datetime] = None
+    for b in occupancy:
+        if b.id == moving_id or b.equipment_id != equipment_id:
+            continue
+        bs, be = parse_dt(b.start), parse_dt(b.end)
+        if be <= start and (before_end is None or be > before_end):
+            before_end = be
+        if bs >= end and (after_start is None or bs < after_start):
+            after_start = bs
+    if before_end is not None and (start - before_end) < buf:
+        reasons.append(_r("buffer", minutes=eq.buffer_minutes))
+    if after_start is not None and (after_start - end) < buf:
+        reasons.append(_r("buffer", minutes=eq.buffer_minutes))
+
+    if deadline is not None and end > deadline:
+        reasons.append(_r("deadline_missed", end=fmt(end), deadline=fmt(deadline)))
+
+    return reasons
 
 
-def calculate_earliest_possible(
-    booking: Booking,
-    equipment_list: list,
-    outage: Optional[Outage],
-    all_bookings: list
-) -> list:
-    """
-    Calculate earliest possible completion for each accessible equipment.
-    This is used when no valid slot exists under current constraints.
-    """
-    equip_map = {e.id: e for e in equipment_list}
-    earliest_list = []
-    
-    allowed_equip_ids = [e.id for e in equipment_list 
-                         if equip_map[booking.equipment_id].unit_id == e.unit_id]
-    
-    for equip_id in allowed_equip_ids:
-        equipment = equip_map[equip_id]
-        unavail = calculate_unavailable_periods(equipment, outage, get_date_str(parse_datetime(booking.original_start)))
-        user_bookings = [b for b in all_bookings if b.user_id == booking.user_id and b.equipment_id == equip_id]
-        
-        slots = generate_available_slots(
-            equipment, get_date_str(parse_datetime(booking.original_start)),
-            booking.duration_minutes, unavail, user_bookings
+def first_fit(
+    world: World,
+    occupancy: List[Booking],
+    equipment_id: str,
+    user_id: str,
+    original_start: datetime,
+    duration: timedelta,
+    deadline: Optional[datetime],
+    moving_id: str,
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Earliest valid slot >= original_start on one equipment, or (None, None)."""
+    cursor = original_start
+    if (cursor.minute % 15) or cursor.second or cursor.microsecond:
+        cursor = cursor.replace(second=0, microsecond=0, minute=0)
+        cursor += (int(original_start.minute // 15) + 1) * STEP
+    close = world.day_close[equipment_id]
+    while cursor + duration <= close:
+        end = cursor + duration
+        fails = _slot_failures(
+            world, occupancy, equipment_id, user_id, cursor, end, moving_id, deadline
         )
-        
-        if slots:
-            slot_start, slot_end = slots[0]
-            
-            # Calculate what would need to change
-            blockers = []
-            if booking.deadline:
-                deadline_str = booking.deadline
-                if len(deadline_str) == 10:
-                    deadline_dt = time_to_datetime(deadline_str, '23:59')
-                else:
-                    deadline_dt = parse_datetime(deadline_str)
-                
-                if slot_end > deadline_dt:
-                    blockers.append({
-                        "code": "deadline_conflict",
-                        "deadline": format_datetime(deadline_dt)[:16],
-                        "finish": format_datetime(slot_end)[:16],
-                        "would_need": {"code": "deadline_would_need", "at_least": slot_end.strftime('%H:%M')}
-                    })
-            
-            # Check if blocked by other bookings
-            for i, (s, e) in enumerate(slots[1:], 1):
-                prev_finish = slots[i-1][1]
-                blockers.append({
-                    "code": "blocked_by_booking",
-                    "wait_until": format_datetime(prev_finish)[:16]
-                })
-            
-            earliest_list.append({
-                "equipment_id": equipment.id,
-                "equipment_name": equipment.name,
-                "earliest_start": format_datetime(slot_start)[:16],
-                "earliest_finish": format_datetime(slot_end)[:16],
-                "blockers": blockers
-            })
+        if not fails:
+            return cursor, end
+        cursor += STEP
+    return None, None
+
+
+def _choose_slot(
+    world: World,
+    occupancy: List[Booking],
+    target: Booking,
+    deadline: Optional[datetime],
+) -> Tuple[Optional[str], Optional[datetime], Optional[datetime]]:
+    """Search all equipment: original first. Key (earliest_start, original first)."""
+    duration = parse_dt(target.end) - parse_dt(target.start)
+    original_start = parse_dt(target.start)
+    best: Optional[Tuple[datetime, datetime, str, bool]] = None
+    order = [target.equipment_id] + [
+        eid for eid in world.equipment if eid != target.equipment_id
+    ]
+    for eid in order:
+        s, e = first_fit(
+            world, occupancy, eid, target.user_id, original_start, duration,
+            deadline, target.id,
+        )
+        if s is None:
+            continue
+        is_original = eid == target.equipment_id
+        if best is None or s < best[0] or (s == best[0] and is_original):
+            best = (s, e, eid, is_original)
+    if best is None:
+        return None, None, None
+    return best[2], best[0], best[1]
+
+
+def compute_plan(
+    world: World, outage: Outage
+) -> Tuple[List[Change], List[UnresolvedEntry]]:
+    # Self-contained outage visibility: a caller may pass a world without the
+    # newly-reported outage; make the search see it either way.
+    outages = list(world.outages)
+    if not any(o.id == outage.id for o in outages):
+        outages.append(outage)
+    search_world = World(
+        equipment=world.equipment,
+        outages=outages,
+        bookings=world.bookings,
+        user_names=world.user_names,
+        user_permissions=world.user_permissions,
+        day_open=world.day_open,
+        day_close=world.day_close,
+    )
+    affected = affected_by(outage, world.bookings)
+    os_, oe = parse_dt(outage.start), parse_dt(outage.end)
+    movable_affected = [b for b in affected if b.movable]
+    nonmovable_affected = [b for b in affected if not b.movable]
+
+    def sort_key(b: Booking):
+        dl = parse_dt(b.deadline) if b.deadline else None
+        return (0, dl, parse_dt(b.start)) if dl else (1, DAY_MAX, parse_dt(b.start))
+
+    movable_affected.sort(key=sort_key)
+
+    occupancy = clone_bookings(world.bookings)
+    changes: List[Change] = []
+    unresolved: List[UnresolvedEntry] = []
+
+    for target in movable_affected:
+        deadline = parse_dt(target.deadline) if target.deadline else None
+        eid, s, e = _choose_slot(search_world, occupancy, target, deadline)
+        if eid is None:
+            reasons = [
+                _r("original_slot_in_outage", outage_id=outage.id, until=fmt(oe)),
+                _r("no_slot_found"),
+            ]
+            unresolved.append(
+                UnresolvedEntry(
+                    booking_id=target.id,
+                    user=world.user_names.get(target.user_id, target.user_id),
+                    user_id=target.user_id,
+                    equipment=target.equipment_id,
+                    equipment_name=world.equipment[target.equipment_id].name,
+                    original_start=target.start,
+                    original_end=target.end,
+                    deadline=target.deadline,
+                    movable=True,
+                    reasons=reasons,
+                    earliest_possible=[],
+                )
+            )
+            continue
+
+        eq_old = world.equipment[target.equipment_id]
+        eq_new = world.equipment[eid]
+        rs: List[Reason] = [_r("original_slot_in_outage", outage_id=outage.id, until=fmt(oe))]
+        if eid != target.equipment_id:
+            rs.append(_r("switched_equipment", **{"from": target.equipment_id, "to": eid}))
         else:
-            # Equipment completely unavailable
-            unavailable_reasons = []
-            for us in unavail:
-                if us[1] > parse_datetime("2026-10-20T00:00:00"):
-                    unavailable_reasons.append({
-                        "code": "down_until",
-                        "until": format_datetime(us[1])[:16]
-                    })
-            
-            earliest_list.append({
-                "equipment_id": equipment.id,
-                "equipment_name": equipment.name,
-                "status": "unavailable",
-                "reasons": unavailable_reasons
-            })
-    
-    return earliest_list
+            rs.append(_r("stayed_on_original_equipment", equipment_id=eid))
+        if deadline is not None:
+            rs.append(_r("deadline_ok", end=fmt(e), deadline=fmt(deadline)))
+
+        changes.append(
+            Change(
+                booking_id=target.id,
+                user=world.user_names.get(target.user_id, target.user_id),
+                user_id=target.user_id,
+                original_equipment=target.equipment_id,
+                original_equipment_name=eq_old.name,
+                original_start=target.start,
+                original_end=target.end,
+                new_equipment=eid,
+                new_equipment_name=eq_new.name,
+                new_start=fmt(s),
+                new_end=fmt(e),
+                reasons=rs,
+            )
+        )
+        for bb in occupancy:
+            if bb.id == target.id:
+                bb.equipment_id = eid
+                bb.start = fmt(s)
+                bb.end = fmt(e)
+                bb.status = "confirmed"
+
+    for b in nonmovable_affected:
+        unresolved.append(
+            UnresolvedEntry(
+                booking_id=b.id,
+                user=world.user_names.get(b.user_id, b.user_id),
+                user_id=b.user_id,
+                equipment=b.equipment_id,
+                equipment_name=world.equipment[b.equipment_id].name,
+                original_start=b.start,
+                original_end=b.end,
+                deadline=b.deadline,
+                movable=False,
+                reasons=[
+                    _r("not_movable"),
+                    _r("original_slot_in_outage", outage_id=outage.id, until=fmt(oe)),
+                ],
+                earliest_possible=[],
+            )
+        )
+
+    _fill_earliest_possible(search_world, movable_affected, unresolved, changes, outage)
+    return changes, unresolved
+
+
+def _fill_earliest_possible(
+    world: World,
+    movable_affected: List[Booking],
+    unresolved: List[UnresolvedEntry],
+    changes: List[Change],
+    outage: Outage,
+) -> None:
+    final_occupancy = clone_bookings(world.bookings)
+    applied = {c.booking_id: c for c in changes}
+    for bb in final_occupancy:
+        c = applied.get(bb.id)
+        if c is not None:
+            bb.equipment_id = c.new_equipment
+            bb.start = c.new_start
+            bb.end = c.new_end
+            bb.status = "confirmed"
+
+    for entry in unresolved:
+        target = next((b for b in movable_affected if b.id == entry.booking_id), None)
+        if target is None:
+            continue  # unmovable entries get no earliest_possible
+        duration = parse_dt(target.end) - parse_dt(target.start)
+        grid_start = parse_dt(target.start)
+        if (grid_start.minute % 15) or grid_start.second or grid_start.microsecond:
+            grid_start = grid_start.replace(second=0, microsecond=0)
+            grid_start += (int(grid_start.minute // 15) + 1) * STEP
+
+        deadline = parse_dt(target.deadline) if target.deadline else None
+        eps: List[EarliestPossible] = []
+        order = [target.equipment_id] + [
+            eid for eid in world.equipment if eid != target.equipment_id
+        ]
+        found_any = False
+        for eid in order:
+            if target.user_id not in world.user_permissions.get(eid, set()):
+                eps.append(
+                    EarliestPossible(
+                        equipment_id=eid,
+                        equipment_name=world.equipment[eid].name,
+                        status="no_permission",
+                        blockers=[_r("no_permission", equipment_id=eid)],
+                        would_work_if=[],  # TODO wwi reason
+                    )
+                )
+                continue
+            s, e = first_fit(
+                world, final_occupancy, eid, target.user_id, grid_start,
+                duration, None, target.id,
+            )
+            if s is not None:
+                found_any = True
+                late = deadline is not None and e > deadline
+                wwi: List[Reason] = []
+                if late:
+                    wwi.append(_r("deadline_would_need", at_least=fmt(e)))
+                eps.append(
+                    EarliestPossible(
+                        equipment_id=eid,
+                        equipment_name=world.equipment[eid].name,
+                        status="available_after_deadline" if late else "no_slot_today",
+                        earliest_start=fmt(s),
+                        earliest_finish=fmt(e),
+                        blockers=[],
+                        would_work_if=wwi,
+                    )
+                )
+            else:
+                eps.append(
+                    EarliestPossible(
+                        equipment_id=eid,
+                        equipment_name=world.equipment[eid].name,
+                        status="no_slot_today",
+                        blockers=[_r("no_slot_found")],
+                        would_work_if=[],
+                    )
+                )
+        entry.earliest_possible = eps
+        if deadline is not None and found_any:
+            best_finish = min(
+                (
+                    parse_dt(ep.earliest_finish)
+                    for ep in eps
+                    if ep.earliest_finish is not None
+                ),
+                default=None,
+            )
+            if best_finish is not None and best_finish > deadline:
+                entry.reasons.append(
+                    _r("deadline_would_need", at_least=fmt(best_finish))
+                )
+        elif target.deadline is None and not found_any:
+            entry.reasons.append(_r("no_slot_found"))
+
+
+# NOTE on EarliestPossible.status semantics (contract §5): a moved-late slot
+# found in the second pass is "available_after_deadline"; a slot the engine
+# cannot fit at all today is "no_slot_today"; no other statuses occur here
+# besides the explicit no_permission case. Several statuses would only appear
+# if computed with stricter day-window semantics, covered by "unavailable".

@@ -1,0 +1,32 @@
+{
+  "affected_bookings": [
+    {
+      "deadline": "2026-10-20T13:00:00+01:00",
+      "end": "2026-10-20T11:00:00+01:00",
+      "id": "B2",
+      "start": "2026-10-20T10:00:00+01:00",
+      "status": "blocked",
+      "user": "Chen",
+      "user_id": "user-chen"
+    },
+    {
+      "deadline": "2026-10-20T18:00:00+01:00",
+      "end": "2026-10-20T12:00:00+01:00",
+      "id": "B4",
+      "start": "2026-10-20T11:00:00+01:00",
+      "status": "blocked",
+      "user": "Wang",
+      "user_id": "user-wang"
+    }
+  ],
+  "equipment": {
+    "id": "confocal-a",
+    "name": "Confocal Microscope A",
+    "unit_id": "lab-a"
+  },
+  "message": "duplicate outage; existing outage O1 already covers this window",
+  "outage_id": "O1",
+  "schedule_version": 2,
+  "status": "duplicate_outage",
+  "unaffected_count": 1
+}

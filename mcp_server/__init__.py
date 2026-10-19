@@ -1,7 +1,7 @@
-"""Shared Equipment Rescue MCP Server Package."""
+"""Shared Equipment Rescue MCP server package.
 
-from .server import mcp
-from .db import init_database, get_db_connection
-from .seed import seed_database
+Importing submodules explicitly (server, db, seed, engine) keeps startup import
+order deterministic; no eager heavy imports here.
+"""
 
-__all__ = ['mcp', 'init_database', 'seed_database', 'get_db_connection']
+__version__ = "1.0.0"

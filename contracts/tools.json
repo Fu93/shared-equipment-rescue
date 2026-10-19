@@ -1,0 +1,1710 @@
+{
+  "_meta": {
+    "note": "Auto-generated from mcp_server.tool registry; edit mcp_server instead.",
+    "title": "Shared Equipment Rescue — MCP tool contract v1"
+  },
+  "tools": {
+    "debug_confirm": {
+      "description": "M0 verification: send one elicitation and report exactly what the client answered.",
+      "inputSchema": {
+        "properties": {},
+        "title": "debug_confirmArguments",
+        "type": "object"
+      },
+      "name": "debug_confirm",
+      "outputSchema": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "confirm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confirm"
+          },
+          "elicited": {
+            "title": "Elicited",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          }
+        },
+        "required": [
+          "elicited",
+          "action"
+        ],
+        "title": "ConfirmResult",
+        "type": "object"
+      }
+    },
+    "equipment_report_outage": {
+      "description": "Record an equipment outage (manager only); affected bookings become blocked.",
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "equipment_id": {
+            "title": "Equipment Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "equipment_id",
+          "start",
+          "end"
+        ],
+        "title": "equipment_report_outageArguments",
+        "type": "object"
+      },
+      "name": "equipment_report_outage",
+      "outputSchema": {
+        "$defs": {
+          "AffectedBooking": {
+            "properties": {
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "end": {
+                "title": "End",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "start": {
+                "title": "Start",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "user",
+              "user_id",
+              "start",
+              "end",
+              "status"
+            ],
+            "title": "AffectedBooking",
+            "type": "object"
+          },
+          "EquipmentRef": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "unit_id": {
+                "title": "Unit Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "unit_id"
+            ],
+            "title": "EquipmentRef",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "affected_bookings": {
+            "items": {
+              "$ref": "#/$defs/AffectedBooking"
+            },
+            "title": "Affected Bookings",
+            "type": "array"
+          },
+          "equipment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EquipmentRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "outage_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outage Id"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unaffected_count": {
+            "default": 0,
+            "title": "Unaffected Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "schedule_version"
+        ],
+        "title": "ReportOutageResult",
+        "type": "object"
+      }
+    },
+    "reset_demo_data": {
+      "description": "Wipe and reseed the demo database; schedule_version returns to 1 (manager only).",
+      "inputSchema": {
+        "properties": {},
+        "title": "reset_demo_dataArguments",
+        "type": "object"
+      },
+      "name": "reset_demo_data",
+      "outputSchema": {
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "schedule_version"
+        ],
+        "title": "ResetResult",
+        "type": "object"
+      }
+    },
+    "schedule_apply_replan": {
+      "description": "Elicit explicit confirmation, then apply a proposed replan; manager only.",
+      "inputSchema": {
+        "properties": {
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_id",
+          "schedule_version"
+        ],
+        "title": "schedule_apply_replanArguments",
+        "type": "object"
+      },
+      "name": "schedule_apply_replan",
+      "outputSchema": {
+        "$defs": {
+          "AppliedChange": {
+            "properties": {
+              "booking_id": {
+                "title": "Booking Id",
+                "type": "string"
+              },
+              "from_end": {
+                "title": "From End",
+                "type": "string"
+              },
+              "from_start": {
+                "title": "From Start",
+                "type": "string"
+              },
+              "new_equipment": {
+                "title": "New Equipment",
+                "type": "string"
+              },
+              "original_equipment": {
+                "title": "Original Equipment",
+                "type": "string"
+              },
+              "reasons": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Reasons",
+                "type": "array"
+              },
+              "to_end": {
+                "title": "To End",
+                "type": "string"
+              },
+              "to_start": {
+                "title": "To Start",
+                "type": "string"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              }
+            },
+            "required": [
+              "booking_id",
+              "user",
+              "original_equipment",
+              "new_equipment",
+              "from_start",
+              "from_end",
+              "to_start",
+              "to_end",
+              "reasons"
+            ],
+            "title": "AppliedChange",
+            "type": "object"
+          },
+          "EarliestPossible": {
+            "properties": {
+              "blockers": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Blockers",
+                "type": "array"
+              },
+              "earliest_finish": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Earliest Finish"
+              },
+              "earliest_start": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Earliest Start"
+              },
+              "equipment_id": {
+                "title": "Equipment Id",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              },
+              "would_work_if": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Would Work If",
+                "type": "array"
+              }
+            },
+            "required": [
+              "equipment_id",
+              "equipment_name",
+              "status"
+            ],
+            "title": "EarliestPossible",
+            "type": "object"
+          },
+          "Reason": {
+            "properties": {
+              "at_least": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "At Least"
+              },
+              "booking_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booking Id"
+              },
+              "closes": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Closes"
+              },
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End"
+              },
+              "equipment_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Equipment Id"
+              },
+              "from": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "From"
+              },
+              "minutes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Minutes"
+              },
+              "opens": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Opens"
+              },
+              "outage_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Outage Id"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start"
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "To"
+              },
+              "until": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Until"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "title": "Reason",
+            "type": "object"
+          },
+          "UnresolvedEntry": {
+            "properties": {
+              "booking_id": {
+                "title": "Booking Id",
+                "type": "string"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "earliest_possible": {
+                "items": {
+                  "$ref": "#/$defs/EarliestPossible"
+                },
+                "title": "Earliest Possible",
+                "type": "array"
+              },
+              "equipment": {
+                "title": "Equipment",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "movable": {
+                "title": "Movable",
+                "type": "boolean"
+              },
+              "original_end": {
+                "title": "Original End",
+                "type": "string"
+              },
+              "original_start": {
+                "title": "Original Start",
+                "type": "string"
+              },
+              "reasons": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Reasons",
+                "type": "array"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "booking_id",
+              "user",
+              "user_id",
+              "equipment",
+              "equipment_name",
+              "original_start",
+              "original_end",
+              "movable",
+              "reasons",
+              "earliest_possible"
+            ],
+            "title": "UnresolvedEntry",
+            "type": "object"
+          },
+          "Viewer": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "role": {
+                "title": "Role",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "name",
+              "role"
+            ],
+            "title": "Viewer",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "applied_changes": {
+            "items": {
+              "$ref": "#/$defs/AppliedChange"
+            },
+            "title": "Applied Changes",
+            "type": "array"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confirmed At"
+          },
+          "confirmed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Viewer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "new_version": {
+            "title": "New Version",
+            "type": "integer"
+          },
+          "outage_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Outage Id"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/$defs/UnresolvedEntry"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "new_version"
+        ],
+        "title": "ApplyResult",
+        "type": "object"
+      }
+    },
+    "schedule_get": {
+      "description": "Read one unit's schedule for one date with role-based masking.",
+      "inputSchema": {
+        "properties": {
+          "date": {
+            "default": "2026-10-20",
+            "title": "Date",
+            "type": "string"
+          },
+          "unit_id": {
+            "default": "lab-a",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "title": "schedule_getArguments",
+        "type": "object"
+      },
+      "name": "schedule_get",
+      "outputSchema": {
+        "$defs": {
+          "BookingView": {
+            "properties": {
+              "affected_by_outage": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Affected By Outage"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "end": {
+                "title": "End",
+                "type": "string"
+              },
+              "equipment": {
+                "title": "Equipment",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "masked": {
+                "default": false,
+                "title": "Masked",
+                "type": "boolean"
+              },
+              "movable": {
+                "title": "Movable",
+                "type": "boolean"
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Role"
+              },
+              "start": {
+                "title": "Start",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              },
+              "user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "User Id"
+              }
+            },
+            "required": [
+              "id",
+              "user",
+              "equipment",
+              "equipment_name",
+              "start",
+              "end",
+              "status",
+              "movable"
+            ],
+            "title": "BookingView",
+            "type": "object"
+          },
+          "EquipmentView": {
+            "properties": {
+              "available_end": {
+                "title": "Available End",
+                "type": "string"
+              },
+              "available_start": {
+                "title": "Available Start",
+                "type": "string"
+              },
+              "buffer_minutes": {
+                "title": "Buffer Minutes",
+                "type": "integer"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "outages": {
+                "items": {
+                  "$ref": "#/$defs/OutageWindow"
+                },
+                "title": "Outages",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "available_start",
+              "available_end",
+              "buffer_minutes"
+            ],
+            "title": "EquipmentView",
+            "type": "object"
+          },
+          "OutageView": {
+            "properties": {
+              "affected_booking_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Affected Booking Ids",
+                "type": "array"
+              },
+              "end": {
+                "title": "End",
+                "type": "string"
+              },
+              "equipment": {
+                "title": "Equipment",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Reason"
+              },
+              "resolved": {
+                "default": false,
+                "title": "Resolved",
+                "type": "boolean"
+              },
+              "start": {
+                "title": "Start",
+                "type": "string"
+              },
+              "unresolved_booking_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Unresolved Booking Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "equipment",
+              "equipment_name",
+              "start",
+              "end"
+            ],
+            "title": "OutageView",
+            "type": "object"
+          },
+          "OutageWindow": {
+            "description": "Per-equipment outage window inside schedule_get.equipment[].outages.",
+            "properties": {
+              "end": {
+                "title": "End",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Reason"
+              },
+              "start": {
+                "title": "Start",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "start",
+              "end"
+            ],
+            "title": "OutageWindow",
+            "type": "object"
+          },
+          "PendingPlanView": {
+            "properties": {
+              "based_on_version": {
+                "title": "Based On Version",
+                "type": "integer"
+              },
+              "change_count": {
+                "title": "Change Count",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "is_complete": {
+                "title": "Is Complete",
+                "type": "boolean"
+              },
+              "outage_id": {
+                "title": "Outage Id",
+                "type": "string"
+              },
+              "plan_id": {
+                "title": "Plan Id",
+                "type": "string"
+              },
+              "unresolved_count": {
+                "title": "Unresolved Count",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "plan_id",
+              "outage_id",
+              "based_on_version",
+              "is_complete",
+              "change_count",
+              "unresolved_count",
+              "created_at"
+            ],
+            "title": "PendingPlanView",
+            "type": "object"
+          },
+          "Viewer": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "role": {
+                "title": "Role",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "name",
+              "role"
+            ],
+            "title": "Viewer",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "bookings": {
+            "items": {
+              "$ref": "#/$defs/BookingView"
+            },
+            "title": "Bookings",
+            "type": "array"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "equipment": {
+            "items": {
+              "$ref": "#/$defs/EquipmentView"
+            },
+            "title": "Equipment",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "open_outages": {
+            "items": {
+              "$ref": "#/$defs/OutageView"
+            },
+            "title": "Open Outages",
+            "type": "array"
+          },
+          "pending_plans": {
+            "items": {
+              "$ref": "#/$defs/PendingPlanView"
+            },
+            "title": "Pending Plans",
+            "type": "array"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "unit_id": {
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "unit_name": {
+            "title": "Unit Name",
+            "type": "string"
+          },
+          "viewer": {
+            "$ref": "#/$defs/Viewer"
+          }
+        },
+        "required": [
+          "status",
+          "schedule_version",
+          "timezone",
+          "date",
+          "unit_id",
+          "unit_name",
+          "viewer",
+          "equipment",
+          "bookings",
+          "open_outages",
+          "pending_plans"
+        ],
+        "title": "ScheduleGetResult",
+        "type": "object"
+      }
+    },
+    "schedule_propose_replan": {
+      "description": "Produce (and store) a replan proposal for an outage; manager only; no side effects on bookings.",
+      "inputSchema": {
+        "properties": {
+          "outage_id": {
+            "title": "Outage Id",
+            "type": "string"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "outage_id",
+          "schedule_version"
+        ],
+        "title": "schedule_propose_replanArguments",
+        "type": "object"
+      },
+      "name": "schedule_propose_replan",
+      "outputSchema": {
+        "$defs": {
+          "Change": {
+            "properties": {
+              "booking_id": {
+                "title": "Booking Id",
+                "type": "string"
+              },
+              "new_end": {
+                "title": "New End",
+                "type": "string"
+              },
+              "new_equipment": {
+                "title": "New Equipment",
+                "type": "string"
+              },
+              "new_equipment_name": {
+                "title": "New Equipment Name",
+                "type": "string"
+              },
+              "new_start": {
+                "title": "New Start",
+                "type": "string"
+              },
+              "original_end": {
+                "title": "Original End",
+                "type": "string"
+              },
+              "original_equipment": {
+                "title": "Original Equipment",
+                "type": "string"
+              },
+              "original_equipment_name": {
+                "title": "Original Equipment Name",
+                "type": "string"
+              },
+              "original_start": {
+                "title": "Original Start",
+                "type": "string"
+              },
+              "reasons": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Reasons",
+                "type": "array"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "booking_id",
+              "user",
+              "user_id",
+              "original_equipment",
+              "original_equipment_name",
+              "original_start",
+              "original_end",
+              "new_equipment",
+              "new_equipment_name",
+              "new_start",
+              "new_end",
+              "reasons"
+            ],
+            "title": "Change",
+            "type": "object"
+          },
+          "EarliestPossible": {
+            "properties": {
+              "blockers": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Blockers",
+                "type": "array"
+              },
+              "earliest_finish": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Earliest Finish"
+              },
+              "earliest_start": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Earliest Start"
+              },
+              "equipment_id": {
+                "title": "Equipment Id",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "string"
+              },
+              "would_work_if": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Would Work If",
+                "type": "array"
+              }
+            },
+            "required": [
+              "equipment_id",
+              "equipment_name",
+              "status"
+            ],
+            "title": "EarliestPossible",
+            "type": "object"
+          },
+          "ProposalSummary": {
+            "properties": {
+              "affected": {
+                "title": "Affected",
+                "type": "integer"
+              },
+              "rescheduled": {
+                "title": "Rescheduled",
+                "type": "integer"
+              },
+              "unresolved": {
+                "title": "Unresolved",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "affected",
+              "rescheduled",
+              "unresolved"
+            ],
+            "title": "ProposalSummary",
+            "type": "object"
+          },
+          "Reason": {
+            "properties": {
+              "at_least": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "At Least"
+              },
+              "booking_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Booking Id"
+              },
+              "closes": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Closes"
+              },
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End"
+              },
+              "equipment_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Equipment Id"
+              },
+              "from": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "From"
+              },
+              "minutes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Minutes"
+              },
+              "opens": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Opens"
+              },
+              "outage_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Outage Id"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start"
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "To"
+              },
+              "until": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Until"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "title": "Reason",
+            "type": "object"
+          },
+          "UnresolvedEntry": {
+            "properties": {
+              "booking_id": {
+                "title": "Booking Id",
+                "type": "string"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deadline"
+              },
+              "earliest_possible": {
+                "items": {
+                  "$ref": "#/$defs/EarliestPossible"
+                },
+                "title": "Earliest Possible",
+                "type": "array"
+              },
+              "equipment": {
+                "title": "Equipment",
+                "type": "string"
+              },
+              "equipment_name": {
+                "title": "Equipment Name",
+                "type": "string"
+              },
+              "movable": {
+                "title": "Movable",
+                "type": "boolean"
+              },
+              "original_end": {
+                "title": "Original End",
+                "type": "string"
+              },
+              "original_start": {
+                "title": "Original Start",
+                "type": "string"
+              },
+              "reasons": {
+                "items": {
+                  "$ref": "#/$defs/Reason"
+                },
+                "title": "Reasons",
+                "type": "array"
+              },
+              "user": {
+                "title": "User",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "booking_id",
+              "user",
+              "user_id",
+              "equipment",
+              "equipment_name",
+              "original_start",
+              "original_end",
+              "movable",
+              "reasons",
+              "earliest_possible"
+            ],
+            "title": "UnresolvedEntry",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "based_on_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Based On Version"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/$defs/Change"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generated At"
+          },
+          "is_complete": {
+            "default": false,
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "outage_id": {
+            "title": "Outage Id",
+            "type": "string"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan Id"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ProposalSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/$defs/UnresolvedEntry"
+            },
+            "title": "Unresolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "outage_id",
+          "schedule_version"
+        ],
+        "title": "ProposeResult",
+        "type": "object"
+      }
+    }
+  }
+}

@@ -525,6 +525,8 @@
         }
         
         // Report outage
+        let lastOutageId = null;
+        
         async function reportOutage(equipId, start, end) {
             showLoading(true);
             
@@ -542,10 +544,13 @@
                 
                 const data = await response.json();
                 
-                if (data.affected_bookings && data.affected_bookings.length > 0) {
+                if (data.outage_id && data.affected_bookings && data.affected_bookings.length > 0) {
+                    lastOutageId = data.outage_id;
+                    scheduleVersion = data.schedule_version;
+                    
                     addMessage(`Outage reported! ${data.affected_bookings.length} booking(s) affected: ${data.affected_bookings.map(b => b.user).join(', ')}`, 'system');
                     
-                    // Generate replan
+                    // Generate replan after short delay
                     setTimeout(() => proposeReplan(), 1000);
                 }
                 
@@ -564,13 +569,13 @@
         
         // Propose replan
         async function proposeReplan() {
-            if (!currentPlanId) {
+            if (!currentPlanId && lastOutageId) {
                 try {
                     const response = await fetch(`${API_BASE}/mcp/schedule_propose_replan`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            outage_id: 'outage_demo_001',
+                            outage_id: lastOutageId,
                             schedule_version: scheduleVersion
                         })
                     });
@@ -585,10 +590,13 @@
                         prepareConfirmation(data);
                         
                         logMCP('schedule_propose_replan', 'PROPOSED', `${data.changes.length} changes`);
+                    } else if (data.error) {
+                        addMessage(`Error: ${data.error}`, 'system');
                     }
                     
                 } catch (error) {
                     console.error('Error:', error);
+                    addMessage('Error proposing replan', 'system');
                 }
             }
         }

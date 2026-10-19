@@ -1,0 +1,18 @@
+{
+  "bookings": [],
+  "date": "2026-10-20",
+  "equipment": [],
+  "message": "missing or invalid Authorization token",
+  "open_outages": [],
+  "pending_plans": [],
+  "schedule_version": 1,
+  "status": "forbidden",
+  "timezone": "Europe/London",
+  "unit_id": "lab-a",
+  "unit_name": "Research Lab A",
+  "viewer": {
+    "name": "",
+    "role": "",
+    "user_id": ""
+  }
+}

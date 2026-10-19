@@ -1,0 +1,11 @@
+{
+  "applied_changes": [],
+  "confirmed_at": null,
+  "confirmed_by": null,
+  "message": "apply cancelled: elicitation declined",
+  "new_version": 2,
+  "outage_id": "O1",
+  "plan_id": "P1",
+  "status": "not_confirmed",
+  "unresolved": []
+}

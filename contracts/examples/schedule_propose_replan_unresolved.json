@@ -1,0 +1,197 @@
+{
+  "based_on_version": 2,
+  "changes": [
+    {
+      "booking_id": "B4",
+      "new_end": "2026-10-20T17:00:00+01:00",
+      "new_equipment": "confocal-a",
+      "new_equipment_name": "Confocal Microscope A",
+      "new_start": "2026-10-20T16:00:00+01:00",
+      "original_end": "2026-10-20T12:00:00+01:00",
+      "original_equipment": "confocal-a",
+      "original_equipment_name": "Confocal Microscope A",
+      "original_start": "2026-10-20T11:00:00+01:00",
+      "reasons": [
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "original_slot_in_outage",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": "O1",
+          "start": null,
+          "to": null,
+          "until": "2026-10-20T16:00:00+01:00"
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "stayed_on_original_equipment",
+          "deadline": null,
+          "end": null,
+          "equipment_id": "confocal-a",
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "deadline_ok",
+          "deadline": "2026-10-20T18:00:00+01:00",
+          "end": "2026-10-20T17:00:00+01:00",
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        }
+      ],
+      "user": "Wang",
+      "user_id": "user-wang"
+    }
+  ],
+  "generated_at": "2026-10-20T12:00:00+01:00",
+  "is_complete": false,
+  "message": "plan P1: 1 move(s), 1 unresolved",
+  "outage_id": "O1",
+  "plan_id": "P1",
+  "schedule_version": 2,
+  "status": "proposed",
+  "summary": {
+    "affected": 2,
+    "rescheduled": 1,
+    "unresolved": 1
+  },
+  "unresolved": [
+    {
+      "booking_id": "B2",
+      "deadline": "2026-10-20T11:30:00+01:00",
+      "earliest_possible": [
+        {
+          "blockers": [
+            {
+              "at_least": null,
+              "booking_id": null,
+              "closes": null,
+              "code": "no_slot_found",
+              "deadline": null,
+              "end": null,
+              "equipment_id": null,
+              "from": null,
+              "minutes": null,
+              "opens": null,
+              "outage_id": null,
+              "start": null,
+              "to": null,
+              "until": null
+            }
+          ],
+          "earliest_finish": null,
+          "earliest_start": null,
+          "equipment_id": "confocal-a",
+          "equipment_name": "Confocal Microscope A",
+          "status": "no_slot_today",
+          "would_work_if": []
+        },
+        {
+          "blockers": [],
+          "earliest_finish": "2026-10-20T12:15:00+01:00",
+          "earliest_start": "2026-10-20T11:15:00+01:00",
+          "equipment_id": "confocal-b",
+          "equipment_name": "Confocal Microscope B",
+          "status": "available_after_deadline",
+          "would_work_if": [
+            {
+              "at_least": "2026-10-20T12:15:00+01:00",
+              "booking_id": null,
+              "closes": null,
+              "code": "deadline_would_need",
+              "deadline": null,
+              "end": null,
+              "equipment_id": null,
+              "from": null,
+              "minutes": null,
+              "opens": null,
+              "outage_id": null,
+              "start": null,
+              "to": null,
+              "until": null
+            }
+          ]
+        }
+      ],
+      "equipment": "confocal-a",
+      "equipment_name": "Confocal Microscope A",
+      "movable": true,
+      "original_end": "2026-10-20T11:00:00+01:00",
+      "original_start": "2026-10-20T10:00:00+01:00",
+      "reasons": [
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "original_slot_in_outage",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": "O1",
+          "start": null,
+          "to": null,
+          "until": "2026-10-20T16:00:00+01:00"
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "no_slot_found",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        },
+        {
+          "at_least": "2026-10-20T12:15:00+01:00",
+          "booking_id": null,
+          "closes": null,
+          "code": "deadline_would_need",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        }
+      ],
+      "user": "Chen",
+      "user_id": "user-chen"
+    }
+  ]
+}

@@ -1,405 +1,375 @@
-"""Database operations using SQLite."""
+"""SQLite persistence: schema, version counter, transactions.
 
+All timestamps persisted as full ISO 8601 strings with timezone offset.
+"""
+
+from __future__ import annotations
+
+import json
+import os
 import sqlite3
-from contextlib import contextmanager
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
+from typing import Any, List, Optional
+
+from . import constants as C
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS units (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    timezone TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('manager','researcher')),
+    token TEXT UNIQUE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS equipment (
+    id TEXT PRIMARY KEY,
+    unit_id TEXT NOT NULL REFERENCES units(id),
+    name TEXT NOT NULL,
+    available_start TEXT NOT NULL,
+    available_end TEXT NOT NULL,
+    buffer_minutes INTEGER NOT NULL DEFAULT 15
+);
+CREATE TABLE IF NOT EXISTS bookings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    equipment_id TEXT NOT NULL REFERENCES equipment(id),
+    booking_date TEXT NOT NULL,
+    original_start TEXT NOT NULL,
+    original_end TEXT NOT NULL,
+    current_start TEXT NOT NULL,
+    current_end TEXT NOT NULL,
+    deadline TEXT,
+    movable INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'confirmed'
+        CHECK(status IN ('confirmed','blocked','unresolved'))
+);
+CREATE TABLE IF NOT EXISTS outages (
+    id TEXT PRIMARY KEY,
+    equipment_id TEXT NOT NULL REFERENCES equipment(id),
+    start TEXT NOT NULL,
+    end TEXT NOT NULL,
+    reason TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plans (
+    id TEXT PRIMARY KEY,
+    outage_id TEXT NOT NULL REFERENCES outages(id),
+    based_on_version INTEGER NOT NULL,
+    changes TEXT NOT NULL,
+    unresolved TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN ('proposed','applied','stale')),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS change_log (
+    id TEXT PRIMARY KEY,
+    plan_id TEXT NOT NULL,
+    booking_id TEXT NOT NULL,
+    before_change TEXT NOT NULL,
+    after_change TEXT NOT NULL,
+    confirmed_by TEXT NOT NULL,
+    confirmed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+_lock = threading.Lock()
+_db_path: str = "server.db"
 
 
-@contextmanager
-def get_db_connection(db_path: str = 'equipment.db'):
-    """Context manager for database connections."""
-    conn = sqlite3.connect(db_path)
+def configure(db_path: Optional[str] = None) -> None:
+    global _db_path
+    if db_path is None:
+        db_path = os.environ.get("SER_DB_PATH", "server.db")
+    _db_path = db_path
+
+
+def now_iso() -> str:
+    """Wall clock for created_at/confirmed_at fields.
+
+    Tests may freeze time by setting SER_FROZEN_NOW (ISO 8601 with offset);
+    production never sets it, so this stays the real UTC clock.
+    """
+    frozen = os.environ.get("SER_FROZEN_NOW")
+    if frozen:
+        return frozen
+    return datetime.now(timezone.utc).isoformat()
+
+
+def fresh_ids_suffix() -> str:
+    return datetime.now(timezone.utc).strftime("%H%M%S%f")[:10]
+
+
+def connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(_db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db(db_path: Optional[str] = None) -> None:
+    configure(db_path)
+    with _lock:
+        conn = connect()
+        try:
+            conn.executescript(_SCHEMA)
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key=?", (C.DB_KEY_VERSION,)
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO meta(key, value) VALUES (?, '1')",
+                    (C.DB_KEY_VERSION,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def get_version() -> int:
+    conn = connect()
     try:
-        yield conn
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key=?", (C.DB_KEY_VERSION,)
+        ).fetchone()
+        return int(row["value"]) if row else 1
     finally:
         conn.close()
 
 
-def init_database(db_path: str = 'equipment.db'):
-    """Initialize database schema."""
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        
-        # Create tables
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS units (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                timezone TEXT DEFAULT 'Europe/London'
+def set_version(value: int) -> None:
+    with _lock:
+        conn = connect()
+        try:
+            conn.execute(
+                "UPDATE meta SET value=? WHERE key=?", (str(value), C.DB_KEY_VERSION)
             )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('manager', 'researcher')),
-                accessible_equipment TEXT NOT NULL,  -- JSON array
-                token TEXT UNIQUE
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS equipment (
-                id TEXT PRIMARY KEY,
-                unit_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                available_start TEXT NOT NULL,
-                available_end TEXT NOT NULL,
-                buffer_minutes INTEGER DEFAULT 15,
-                FOREIGN KEY (unit_id) REFERENCES units(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bookings (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                equipment_id TEXT NOT NULL,
-                duration_minutes INTEGER DEFAULT 60,
-                original_start TEXT NOT NULL,
-                original_end TEXT NOT NULL,
-                current_start TEXT NOT NULL,
-                current_end TEXT NOT NULL,
-                deadline TEXT,
-                movable INTEGER DEFAULT 1 CHECK(movable IN (0, 1)),
-                status TEXT DEFAULT 'confirmed' CHECK(status IN ('confirmed', 'blocked', 'unresolved')),
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (equipment_id) REFERENCES equipment(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS outages (
-                id TEXT PRIMARY KEY,
-                equipment_id TEXT NOT NULL,
-                start TEXT NOT NULL,
-                end TEXT NOT NULL,
-                reason TEXT,
-                created_by TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (equipment_id) REFERENCES equipment(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS plans (
-                id TEXT PRIMARY KEY,
-                outage_id TEXT NOT NULL,
-                based_on_version INTEGER NOT NULL,
-                changes TEXT NOT NULL,  -- JSON
-                unresolved TEXT NOT NULL,  -- JSON
-                status TEXT DEFAULT 'proposed' CHECK(status IN ('proposed', 'applied', 'stale')),
-                confirmed_by TEXT,
-                confirmed_at TEXT,
-                FOREIGN KEY (outage_id) REFERENCES outages(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS change_log (
-                id TEXT PRIMARY KEY,
-                plan_id TEXT NOT NULL,
-                booking_id TEXT NOT NULL,
-                before_change TEXT NOT NULL,  -- JSON
-                after_change TEXT NOT NULL,  -- JSON
-                confirmed_by TEXT NOT NULL,
-                confirmed_at TEXT NOT NULL,
-                FOREIGN KEY (plan_id) REFERENCES plans(id),
-                FOREIGN KEY (booking_id) REFERENCES bookings(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        ''')
-        
-        # Initialize version counter
-        cursor.execute('''
-            INSERT OR IGNORE INTO meta (key, value) VALUES ('schedule_version', '0')
-        ''')
+            conn.commit()
+        finally:
+            conn.close()
 
 
-def get_schedule_version(db_path: str = 'equipment.db') -> int:
-    """Get current schedule version."""
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM meta WHERE key = 'schedule_version'")
-        row = cursor.fetchone()
-        return int(row['value']) if row else 0
+def bump_version(conn: sqlite3.Connection) -> int:
+    conn.execute(
+        "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key=?",
+        (C.DB_KEY_VERSION,),
+    )
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key=?", (C.DB_KEY_VERSION,)
+    ).fetchone()
+    return int(row["value"])
 
 
-def increment_schedule_version(db_path: str = 'equipment.db') -> int:
-    """Increment and return new schedule version."""
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE meta SET value = value + 1 WHERE key = 'schedule_version'")
-        cursor.execute("SELECT value FROM meta WHERE key = 'schedule_version'")
-        row = cursor.fetchone()
-        return int(row['value']) if row else 1
+def users_query() -> List[dict]:
+    conn = connect()
+    try:
+        rows = conn.execute("SELECT * FROM users").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
-# Query functions
-
-def get_unit(unit_id: str, db_path: str = 'equipment.db') -> Optional[Dict]:
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM units WHERE id = ?", (unit_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
+def equipment_for_unit(unit_id: str, conn: sqlite3.Connection) -> List[dict]:
+    rows = conn.execute(
+        "SELECT * FROM equipment WHERE unit_id=? ORDER BY id", (unit_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
-def list_bookings(
-    db_path: str = 'equipment.db',
-    unit_id: Optional[str] = None,
-    date: Optional[str] = None,
-    user_id: Optional[str] = None
-) -> List[Dict]:
-    """List bookings with optional filters."""
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        
-        query = "SELECT b.*, u.name as user_name, u.role from bookings b join users u on b.user_id = u.id"
-        params = []
-        
-        conditions = []
-        if unit_id:
-            conditions.append("e.unit_id = ?")
-            params.append(unit_id)
-        if date:
-            conditions.append("DATE(b.current_start) = ?")
-            params.append(date)
-        if user_id:
-            conditions.append("b.user_id = ?")
-            params.append(user_id)
-        
-        if conditions:
-            query += " JOIN equipment e ON b.equipment_id = e.id WHERE " + " AND ".join(conditions)
-        
-        query += " ORDER BY b.current_start"
-        
-        cursor.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
+def bookings_for_date(date_str: str, conn: sqlite3.Connection) -> List[dict]:
+    rows = conn.execute(
+        "SELECT * FROM bookings WHERE booking_date=? ORDER BY current_start",
+        (date_str,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
-def get_outages(
-    db_path: str = 'equipment.db',
-    equipment_id: Optional[str] = None,
-    date: Optional[str] = None
-) -> List[Dict]:
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        query = "SELECT * FROM outages WHERE 1=1"
-        params = []
-        
-        if equipment_id:
-            query += " AND equipment_id = ?"
-            params.append(equipment_id)
-        if date:
-            query += " AND DATE(start) <= ? AND DATE(end) >= ?"
-            params.extend([date, date])
-        
-        query += " ORDER BY start DESC"
-        
-        cursor.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
+def bookings_for_equipment_date(
+    equipment_id: str, date_str: str, conn: sqlite3.Connection
+) -> List[dict]:
+    rows = conn.execute(
+        "SELECT * FROM bookings WHERE equipment_id=? AND booking_date=?"
+        " ORDER BY current_start",
+        (equipment_id, date_str),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
-def get_plans(
-    db_path: str = 'equipment.db',
-    outage_id: Optional[str] = None,
-    status: Optional[str] = None
-) -> List[Dict]:
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        query = "SELECT * FROM plans WHERE 1=1"
-        params = []
-        
-        if outage_id:
-            query += " AND outage_id = ?"
-            params.append(outage_id)
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-        
-        query += " ORDER BY confirmed_at DESC"
-        
-        cursor.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
+def outages_for_date(date_str: str, conn: sqlite3.Connection) -> List[dict]:
+    rows = conn.execute(
+        "SELECT * FROM outages WHERE start LIKE ? ORDER BY start",
+        (f"{date_str}%",),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
-def create_outage(
+def get_outage(outage_id: str, conn: sqlite3.Connection) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM outages WHERE id=?", (outage_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_plan(plan_id: str, conn: sqlite3.Connection) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM plans WHERE id=?", (plan_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def proposed_plan_for(
+    outage_id: str, based_on_version: int, conn: sqlite3.Connection
+) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM plans WHERE outage_id=? AND based_on_version=?"
+        " AND status='proposed'",
+        (outage_id, based_on_version),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def stale_other_proposed_plans(
+    outage_id: str, keep_plan_id: str, conn: sqlite3.Connection
+) -> None:
+    conn.execute(
+        "UPDATE plans SET status='stale' WHERE outage_id=? AND status='proposed'"
+        " AND id<>?",
+        (outage_id, keep_plan_id),
+    )
+
+
+def stale_all_proposed_plans(outage_id: str, conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE plans SET status='stale' WHERE outage_id=? AND status='proposed'",
+        (outage_id,),
+    )
+
+
+def insert_outage(
+    conn: sqlite3.Connection,
+    *,
+    outage_id: str,
     equipment_id: str,
     start: str,
     end: str,
-    reason: Optional[str] = None,
-    created_by: Optional[str] = None,
-    db_path: str = 'equipment.db'
-) -> Dict:
-    """Create a new outage record."""
-    import uuid
-    
-    outage_id = f"outage_{uuid.uuid4().hex[:8]}"
-    now = datetime.now().isoformat()
-    
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO outages (id, equipment_id, start, end, reason, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (outage_id, equipment_id, start, end, reason, created_by, now))
-        
-        return {
-            "id": outage_id,
-            "equipment_id": equipment_id,
-            "start": start,
-            "end": end,
-            "reason": reason,
-            "created_by": created_by,
-            "created_at": now
-        }
+    reason: Optional[str],
+    created_by: str,
+) -> None:
+    conn.execute(
+        "INSERT INTO outages(id, equipment_id, start, end, reason, created_by,"
+        " created_at) VALUES (?,?,?,?,?,?,?)",
+        (outage_id, equipment_id, start, end, reason, created_by, now_iso()),
+    )
 
 
-def create_plan(
+def block_bookings(conn: sqlite3.Connection, booking_ids: List[str]) -> None:
+    for bid in booking_ids:
+        conn.execute(
+            "UPDATE bookings SET status='blocked' WHERE id=? AND status='confirmed'",
+            (bid,),
+        )
+
+
+def insert_plan(
+    conn: sqlite3.Connection,
+    *,
+    plan_id: str,
     outage_id: str,
     based_on_version: int,
-    changes: list,
-    unresolved: list,
-    db_path: str = 'equipment.db'
-) -> Dict:
-    """Create a new replan proposal."""
-    import json
-    import uuid
-    
-    plan_id = f"plan_{uuid.uuid4().hex[:8]}"
-    
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO plans (id, outage_id, based_on_version, changes, unresolved, status)
-            VALUES (?, ?, ?, ?, ?, 'proposed')
-        ''', (
-            plan_id, outage_id, based_on_version,
-            json.dumps(changes), json.dumps(unresolved)
-        ))
-        
-        return {
-            "id": plan_id,
-            "outage_id": outage_id,
-            "based_on_version": based_on_version,
-            "changes": changes,
-            "unresolved": unresolved,
-            "status": "proposed"
-        }
+    changes: List[dict],
+    unresolved: List[dict],
+    status: str = "proposed",
+) -> None:
+    conn.execute(
+        "INSERT INTO plans(id, outage_id, based_on_version, changes, unresolved,"
+        " status, created_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            plan_id,
+            outage_id,
+            based_on_version,
+            json.dumps(changes, ensure_ascii=False),
+            json.dumps(unresolved, ensure_ascii=False),
+            status,
+            now_iso(),
+        ),
+    )
 
 
-def update_plan_status(
-    plan_id: str,
-    status: str,
-    confirmed_by: Optional[str] = None,
-    confirmed_at: Optional[str] = None,
-    db_path: str = 'equipment.db'
-):
-    """Update plan status."""
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE plans SET status = ?, confirmed_by = ?, confirmed_at = ?
-            WHERE id = ?
-        ''', (status, confirmed_by, confirmed_at, plan_id))
-
-
-def log_change(
-    plan_id: str,
-    booking_id: str,
-    before_change: dict,
-    after_change: dict,
-    confirmed_by: str,
-    confirmed_at: str,
-    db_path: str = 'equipment.db'
-):
-    """Log a booking change."""
-    import uuid
-    
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO change_log (id, plan_id, booking_id, before_change, after_change, confirmed_by, confirmed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            f"change_{uuid.uuid4().hex[:8]}", plan_id, booking_id,
-            json.dumps(before_change), json.dumps(after_change),
-            confirmed_by, confirmed_at
-        ))
-
-
-def apply_replan_changes(
+def apply_changes_transaction(
+    conn: sqlite3.Connection,
+    *,
     plan: dict,
-    confirmed_by: str,
-    db_path: str = 'equipment.db'
-):
-    """Apply all changes from a plan to the database."""
-    import json
-    
-    confirmed_at = datetime.now().isoformat()
-    
-    with get_db_connection(db_path) as conn:
-        cursor = conn.cursor()
-        
-        # Update each booking
-        for change in plan.get('changes', []):
-            # Log before state
-            before = {
-                "equipment_id": change['original_equip'],
-                "start": change['original_start'],
-                "end": change['original_end']
-            }
-            
-            # After state will be updated in database
-            cursor.execute('''
-                UPDATE bookings SET
-                    current_start = ?,
-                    current_end = ?,
-                    equipment_id = ?,
-                    status = 'confirmed'
-                WHERE id = ?
-            ''', (
-                change['new_start'],
-                change['new_end'],
-                change['new_equip'],
-                change['booking_id']
-            ))
-            
-            # Log the change
-            after = {
-                "equipment_id": change['new_equip'],
-                "start": change['new_start'],
-                "end": change['new_end']
-            }
-            
-            cursor.execute('''
-                INSERT INTO change_log (id, plan_id, booking_id, before_change, after_change, confirmed_by, confirmed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                f"change_{uuid.uuid4().hex[:8]}", plan['id'], change['booking_id'],
-                json.dumps(before), json.dumps(after),
-                confirmed_by, confirmed_at
-            ))
-        
-        # Update plan status
-        cursor.execute('''
-            UPDATE plans SET status = 'applied', confirmed_by = ?, confirmed_at = ?
-            WHERE id = ? AND status = 'proposed'
-        ''', (confirmed_by, confirmed_at, plan['id']))
-        
-        # Increment schedule version
-        cursor.execute("UPDATE meta SET value = value + 1 WHERE key = 'schedule_version'")
+    changes: List[dict],
+    unresolved_ids: List[str],
+    confirmed_by_id: str,
+    confirmed_by_name: str,
+    confirmed_by_role: str,
+    confirmed_at: str,
+) -> int:
+    """Single BEGIN IMMEDIATE-per-call transaction body; caller wraps."""
+    for ch in changes:
+        before = conn.execute(
+            "SELECT current_start, current_end, equipment_id FROM bookings WHERE id=?",
+            (ch["booking_id"],),
+        ).fetchone()
+        if before is None:
+            raise RuntimeError(f"apply: booking {ch['booking_id']} vanished")
+        conn.execute(
+            "UPDATE bookings SET current_start=?, current_end=?, equipment_id=?,"
+            " status='confirmed' WHERE id=?",
+            (
+                ch["new_start"],
+                ch["new_end"],
+                ch["new_equipment"],
+                ch["booking_id"],
+            ),
+        )
+        after = {
+            "booking_id": ch["booking_id"],
+            "equipment_id": ch["new_equipment"],
+            "current_start": ch["new_start"],
+            "current_end": ch["new_end"],
+            "status": "confirmed",
+        }
+        conn.execute(
+            "INSERT INTO change_log(id, plan_id, booking_id, before_change,"
+            " after_change, confirmed_by, confirmed_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                f"chg-{plan['id']}-{ch['booking_id']}",
+                plan["id"],
+                ch["booking_id"],
+                json.dumps(dict(before), ensure_ascii=False),
+                json.dumps(after, ensure_ascii=False),
+                f"{confirmed_by_id}|{confirmed_by_name}|{confirmed_by_role}",
+                confirmed_at,
+            ),
+        )
+    for bid in unresolved_ids:
+        conn.execute(
+            "UPDATE bookings SET status='unresolved' WHERE id=?", (bid,)
+        )
+    conn.execute(
+        "UPDATE plans SET status='applied' WHERE id=?", (plan["id"],)
+    )
+    return bump_version(conn)
+
+
+def wipe_for_reset(conn: sqlite3.Connection) -> None:
+    for table in (
+        "change_log",
+        "plans",
+        "outages",
+        "bookings",
+        "equipment",
+        "users",
+        "units",
+        "meta",
+    ):
+        conn.execute(f"DELETE FROM {table}")

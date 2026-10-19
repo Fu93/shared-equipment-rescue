@@ -1,0 +1,126 @@
+{
+  "bookings": [
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T10:00:00+01:00",
+      "equipment": "confocal-a",
+      "equipment_name": "Confocal Microscope A",
+      "id": "B1",
+      "masked": true,
+      "movable": false,
+      "role": null,
+      "start": "2026-10-20T09:00:00+01:00",
+      "status": "occupied",
+      "user": "Occupied",
+      "user_id": null
+    },
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T11:00:00+01:00",
+      "equipment": "confocal-a",
+      "equipment_name": "Confocal Microscope A",
+      "id": "B2",
+      "masked": true,
+      "movable": false,
+      "role": null,
+      "start": "2026-10-20T10:00:00+01:00",
+      "status": "occupied",
+      "user": "Occupied",
+      "user_id": null
+    },
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T11:00:00+01:00",
+      "equipment": "confocal-b",
+      "equipment_name": "Confocal Microscope B",
+      "id": "B3",
+      "masked": false,
+      "movable": false,
+      "role": "researcher",
+      "start": "2026-10-20T10:00:00+01:00",
+      "status": "confirmed",
+      "user": "Li",
+      "user_id": "user-li"
+    },
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T12:00:00+01:00",
+      "equipment": "confocal-a",
+      "equipment_name": "Confocal Microscope A",
+      "id": "B4",
+      "masked": true,
+      "movable": false,
+      "role": null,
+      "start": "2026-10-20T11:00:00+01:00",
+      "status": "occupied",
+      "user": "Occupied",
+      "user_id": null
+    },
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T15:00:00+01:00",
+      "equipment": "confocal-b",
+      "equipment_name": "Confocal Microscope B",
+      "id": "B5",
+      "masked": false,
+      "movable": true,
+      "role": "researcher",
+      "start": "2026-10-20T14:00:00+01:00",
+      "status": "confirmed",
+      "user": "Li",
+      "user_id": "user-li"
+    },
+    {
+      "affected_by_outage": null,
+      "deadline": null,
+      "end": "2026-10-20T16:00:00+01:00",
+      "equipment": "confocal-b",
+      "equipment_name": "Confocal Microscope B",
+      "id": "B6",
+      "masked": true,
+      "movable": false,
+      "role": null,
+      "start": "2026-10-20T15:00:00+01:00",
+      "status": "occupied",
+      "user": "Occupied",
+      "user_id": null
+    }
+  ],
+  "date": "2026-10-20",
+  "equipment": [
+    {
+      "available_end": "18:00",
+      "available_start": "09:00",
+      "buffer_minutes": 15,
+      "id": "confocal-a",
+      "name": "Confocal Microscope A",
+      "outages": []
+    },
+    {
+      "available_end": "18:00",
+      "available_start": "09:00",
+      "buffer_minutes": 15,
+      "id": "confocal-b",
+      "name": "Confocal Microscope B",
+      "outages": []
+    }
+  ],
+  "message": "6 bookings; schedule version 1",
+  "open_outages": [],
+  "pending_plans": [],
+  "schedule_version": 1,
+  "status": "ok",
+  "timezone": "Europe/London",
+  "unit_id": "lab-a",
+  "unit_name": "Research Lab A",
+  "viewer": {
+    "name": "Li",
+    "role": "researcher",
+    "user_id": "user-li"
+  }
+}

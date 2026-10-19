@@ -1,0 +1,13 @@
+{
+  "based_on_version": null,
+  "changes": [],
+  "generated_at": null,
+  "is_complete": false,
+  "message": "schedule_version is now 2; re-propose with the current version",
+  "outage_id": "O1",
+  "plan_id": null,
+  "schedule_version": 2,
+  "status": "plan_stale",
+  "summary": null,
+  "unresolved": []
+}

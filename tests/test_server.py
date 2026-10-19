@@ -1,0 +1,273 @@
+"""Live end-to-end tests over real Streamable HTTP transport.
+
+Spawns uvicorn in a background taskgroup, then speaks MCP (initialize →
+tools/call) exactly like a real client, including elicitation handling.
+Reuses spike5's proven client wiring.
+"""
+
+import asyncio
+import json
+import os
+import sys
+import tempfile
+
+import httpx
+import pytest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+
+import mcp  # noqa: E402
+from mcp import ClientSession, types  # noqa: E402
+from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
+
+MCP_PORT = int(os.environ.get("SER_TEST_PORT", "8907"))
+URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
+TOKENS = {"manager": "tok-manager", "chen": "tok-chen", "li": "tok-li", "wang": "tok-wang"}
+
+
+@pytest.fixture(scope="module")
+def anyio_backend():
+    return "asyncio"
+
+
+async def _start_server(dbp: str):
+    os.environ["SER_DB_PATH"] = dbp
+    os.environ.setdefault("SER_FROZEN_IN_TESTS", "0")
+    import uvicorn
+    from mcp_server.server import build_app, mcp as _mcp
+
+    app = build_app()
+    config = uvicorn.Config(app, host="127.0.0.1", port=MCP_PORT, log_level="error")
+    server = uvicorn.Server(config)
+
+    task = asyncio.create_task(server.serve())
+    # wait for readiness
+    for _ in range(100):
+        if server.started:
+            break
+        await asyncio.sleep(0.05)
+    assert server.started, "uvicorn did not start"
+    return server, task
+
+
+def _elicitation_handler(response_confirm):
+    async def handler(message, schema):
+        if response_confirm is None:
+            from mcp.types import DeclinedElicitation
+
+            return DeclinedElicitation()
+        return types.ElicitResult(
+            action="accept",
+            content={"confirm": response_confirm},
+        )
+
+    return handler
+
+
+class Client:
+    """Stateful MCP client over streamable http with a token header."""
+
+    def __init__(self, session, httpx_client, confirm=None):
+        self.session = session
+        self.http = httpx_client
+        self.confirm = confirm
+
+    async def call(self, name, args=None):
+        res = await self.session.call_task if False else await self._call(name, args)
+        return res
+
+    async def _call(self, name, args=None):
+        result = await self.session.call_tool(name, args or {})
+        return result
+
+    async def structured(self, name, args=None):
+        res = await self._call(name, args)
+        assert res.isError is False, f"isError on {name}: {res.content}"
+        assert res.structuredContent is not None
+        return res.structuredContent
+
+
+async def _open_session(token, confirm=None):
+    headers = {"authorization": f"Bearer {TOKENS[token]}"} if token else {}
+    elic = _elicitation_handler(confirm)
+    cm = streamablehttp_client(URL, headers=headers)
+    read, write, get_session_id = await cm.__aenter__()
+    # elicitation capability requires async callback on the ClientSession
+    sm_cm = ClientSession(read, write, elicitation_callback=elic)
+    session = await sm_cm.__aenter__()
+    init = await session.initialize()
+    return Client(session, None, confirm), cm, sm_cm, init
+
+
+@pytest.fixture(scope="module")
+async def server_env():
+    dbp = os.path.join(tempfile.gettempdir(), "ser_test_server.db")
+    if os.path.exists(dbp):
+        os.remove(dbp)
+    server, task = await _start_server(dbp)
+    yield {"db": dbp}
+    server.should_exit = True
+    try:
+        await asyncio.wait_for(task, timeout=5)
+    except Exception:
+        task.cancel()
+    if os.path.exists(dbp):
+        os.remove(dbp)
+
+
+# --- tests --------------------------------
+
+
+@pytest.mark.anyio
+async def test_initialize_and_list_tools(server_env):
+    client, hcm, scm, init = await _open_session("manager")
+    try:
+        assert init.protocolVersion == "2025-11-25"
+        names = {t.name for t in (await client.session.list_tools()).tools}
+        assert names == {
+            "schedule_get",
+            "equipment_report_outage",
+            "schedule_propose_replan",
+            "schedule_apply_replan",
+            "reset_demo_data",
+            "debug_confirm",
+        }
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_forbidden_without_token(server_env):
+    client, hcm, scm, init = await _open_session(None)
+    try:
+        res = await client.structured("schedule_get", {"unit_id": "lab-a", "date": "2026-10-20"})
+        assert res["status"] == "forbidden"
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_manager_full_flow_http(server_env):
+    client, hcm, scm, init = await _open_session("manager", confirm=True)
+    try:
+        g = await client.structured("schedule_get")
+        assert g["status"] == "ok" and g["schedule_version"] == 1
+
+        ro = await client.structured("equipment_report_outage", {
+            "equipment_id": "confocal-a",
+            "start": "2026-10-20T10:00:00+01:00",
+            "end": "2026-10-20T16:00:00+01:00",
+            "reason": "laser fault",
+        })
+        assert ro["status"] == "recorded" and ro["outage_id"] == "O1"
+        v2 = ro["schedule_version"]
+
+        pr = await client.structured("schedule_propose_replan", {
+            "outage_id": "O1", "schedule_version": v2,
+        })
+        assert pr["status"] == "proposed"
+        assert [(c["booking_id"], c["new_equipment"]) for c in pr["changes"]] == [
+            ("B2", "confocal-b"), ("B4", "confocal-a"),
+        ]
+
+        ap = await client.structured("schedule_apply_replan", {
+            "plan_id": pr["plan_id"], "schedule_version": v2,
+        })
+        assert ap["status"] == "applied" and ap["new_version"] == 3
+
+        ap2 = await client.structured("schedule_apply_replan", {
+            "plan_id": pr["plan_id"], "schedule_version": ap["new_version"],
+        })
+        assert ap2["status"] == "already_applied"
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_apply_declined_is_side_effect_free(server_env):
+    client, hcm, scm, init = await _open_session("manager", confirm=True)
+    try:
+        ro = await client.structured("equipment_report_outage", {
+            "equipment_id": "confocal-b",
+            "start": "2026-10-20T10:00:00+01:00",
+            "end": "2026-10-20T11:30:00+01:00",
+            "reason": "x",
+        })
+        v = ro["schedule_version"]
+        pr = await client.structured("schedule_propose_replan", {
+            "outage_id": ro["outage_id"], "schedule_version": v,
+        })
+        assert pr["plan_id"]
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+    # fresh client WITHOUT elicitation confirmation (declines)
+    client2, hcm2, scm2, _ = await _open_session("manager", confirm=None)
+    try:
+        res = await client2.session.call_tool("schedule_apply_replan", {
+            "plan_id": pr["plan_id"], "schedule_version": v,
+        })
+        # declined elicitation -> not_confirmed (no isError at protocol level)
+        data = res.structuredContent
+        assert data["status"] == "not_confirmed"
+        # plan still proposed
+        g = await client2.structured("schedule_get")
+        assert any(p["plan_id"] == pr["plan_id"] for p in g["pending_plans"])
+    finally:
+        await scm2.__aexit__(None, None, None)
+        await hcm2.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_researcher_forbidden_report(server_env):
+    client, hcm, scm, init = await _open_session("li")
+    try:
+        res = await client.structured("equipment_report_outage", {
+            "equipment_id": "confocal-a",
+            "start": "2026-10-20T10:00:00+01:00",
+            "end": "2026-10-20T16:00:00+01:00",
+        })
+        assert res["status"] == "forbidden"
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_plan_stale_after_version_bump(server_env):
+    """Self-contained: reset first, then stale propose with the pre-outage version."""
+    client, hcm, scm, init = await _open_session("manager", confirm=True)
+    try:
+        rs = await client.structured("reset_demo_data")
+        assert rs["schedule_version"] == 1
+        ro = await client.structured("equipment_report_outage", {
+            "equipment_id": "confocal-a",
+            "start": "2026-10-20T10:00:00+01:00",
+            "end": "2026-10-20T16:00:00+01:00",
+            "reason": "laser",
+        })
+        assert ro["schedule_version"] == 2
+        res = await client.structured("schedule_propose_replan", {
+            "outage_id": ro["outage_id"], "schedule_version": 1,
+        })
+        assert res["status"] == "plan_stale"
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_reset_restores_version(server_env):
+    client, hcm, scm, init = await _open_session("manager", confirm=True)
+    try:
+        rs = await client.structured("reset_demo_data")
+        assert rs["status"] == "reset" and rs["schedule_version"] == 1
+    finally:
+        await scm.__aexit__(None, None, None)
+        await hcm.__aexit__(None, None, None)

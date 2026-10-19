@@ -1,0 +1,136 @@
+{
+  "applied_changes": [
+    {
+      "booking_id": "B2",
+      "from_end": "2026-10-20T11:00:00+01:00",
+      "from_start": "2026-10-20T10:00:00+01:00",
+      "new_equipment": "confocal-b",
+      "original_equipment": "confocal-a",
+      "reasons": [
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "original_slot_in_outage",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": "O1",
+          "start": null,
+          "to": null,
+          "until": "2026-10-20T16:00:00+01:00"
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "switched_equipment",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": "confocal-a",
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": "confocal-b",
+          "until": null
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "deadline_ok",
+          "deadline": "2026-10-20T13:00:00+01:00",
+          "end": "2026-10-20T12:15:00+01:00",
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        }
+      ],
+      "to_end": "2026-10-20T12:15:00+01:00",
+      "to_start": "2026-10-20T11:15:00+01:00",
+      "user": "Chen"
+    },
+    {
+      "booking_id": "B4",
+      "from_end": "2026-10-20T12:00:00+01:00",
+      "from_start": "2026-10-20T11:00:00+01:00",
+      "new_equipment": "confocal-a",
+      "original_equipment": "confocal-a",
+      "reasons": [
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "original_slot_in_outage",
+          "deadline": null,
+          "end": null,
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": "O1",
+          "start": null,
+          "to": null,
+          "until": "2026-10-20T16:00:00+01:00"
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "stayed_on_original_equipment",
+          "deadline": null,
+          "end": null,
+          "equipment_id": "confocal-a",
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        },
+        {
+          "at_least": null,
+          "booking_id": null,
+          "closes": null,
+          "code": "deadline_ok",
+          "deadline": "2026-10-20T18:00:00+01:00",
+          "end": "2026-10-20T17:00:00+01:00",
+          "equipment_id": null,
+          "from": null,
+          "minutes": null,
+          "opens": null,
+          "outage_id": null,
+          "start": null,
+          "to": null,
+          "until": null
+        }
+      ],
+      "to_end": "2026-10-20T17:00:00+01:00",
+      "to_start": "2026-10-20T16:00:00+01:00",
+      "user": "Wang"
+    }
+  ],
+  "confirmed_at": "2026-10-20T12:00:00+01:00",
+  "confirmed_by": {
+    "name": "Facility Manager",
+    "role": "manager",
+    "user_id": "user-manager"
+  },
+  "message": "plan P1 applied; 2 booking(s) moved; version 3",
+  "new_version": 3,
+  "outage_id": "O1",
+  "plan_id": "P1",
+  "status": "applied",
+  "unresolved": []
+}
