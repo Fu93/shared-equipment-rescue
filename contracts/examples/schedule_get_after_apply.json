@@ -117,7 +117,7 @@
       "outages": []
     }
   ],
-  "message": "6 bookings; schedule version 3",
+  "message": "Facility Manager, Research Lab A has 6 bookings on 2026-10-20 (Europe/London), schedule version 3. Everything is running normally.",
   "open_outages": [],
   "pending_plans": [],
   "schedule_version": 3,

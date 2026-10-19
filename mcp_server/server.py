@@ -379,11 +379,14 @@ async def _schedule_get_impl(
         if pr["status"] == "proposed"
     ]
 
-    n_msg = f"{len(bookings)} bookings"
-    if open_outages:
-        o0 = open_outages[0]
-        n_msg += f"; outage {o0.id} on {o0.equipment_name} affects {len(o0.affected_booking_ids)} booking(s)"
-    n_msg += f"; schedule version {version}"
+    from .llm import script_schedule_overview
+
+    _snap = {
+        "schedule_version": version,
+        "viewer": {"name": viewer.name, "user_id": viewer.user_id, "role": viewer.role},
+        "bookings": [b.model_dump() for b in bookings],
+        "open_outages": [o.model_dump() for o in open_outages],
+    }
     return ScheduleGetResult(
         status="ok",
         schedule_version=version,
@@ -396,7 +399,7 @@ async def _schedule_get_impl(
         bookings=bookings,
         open_outages=open_outages,
         pending_plans=pending,
-        message=n_msg,
+        message=script_schedule_overview(_snap),
     )
 
 
