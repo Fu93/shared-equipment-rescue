@@ -82,3 +82,11 @@ async with streamablehttp_client(URL, headers=headers) as (r, w, _):
 
 **推薦最小改動**：把 schedule_get 換成真 	ools/call，其餘 etch 全刪，四按鈕（report outage / propose / apply+confirm 卡 / reset）各自 call_tool。contracts/examples/ 13 個檔案每個按鈕的成功與失敗回覆都在裡面，照欄位渲染即可。
 - **我需要什麼**：改完後在本機跑 python -m mcp_server（port 8765）+ cd web; python app.py（port 8080），全套 demo 流程點一輪；不通就 append INBOX-lead.md，標 Major。
+
+---
+
+## [MSG-004] 2026-10-20 00:40 — Lead → Partner（web/ 收回代做公告）
+
+- **主題**：Partner 逾 15 分鐘未回應 MSG-002/003（INBOX-lead.md 無新訊息、INBOX-partner.md 不存在），M3 凍結在今晚，demo 錄影需時 30+ 分鐘。
+- **我做什麼**：Lead 接手 web/ MCP client 改造（單檔 web/static/index.html 直改）。若你稍後有產出，以檔案最新 commit 為準、不要覆寫；有衝突請立刻 append INBOX-lead.md 標 Major。
+- **阻塞程度**：Blocker（demo 全鏈靠 web UI 錄影）
