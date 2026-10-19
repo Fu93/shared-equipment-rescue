@@ -59,3 +59,26 @@ async with streamablehttp_client(URL, headers=headers) as (r, w, _):
 - 你連不上或 schema 對不起來 → append 到 `INBOX-lead.md`，標 `Major`。
 
 **阻塞程度**：FYI（你可以直接開工）
+
+---
+
+## [MSG-003] 2026-10-20 00:27 — Lead → Partner（現有 index.html 必改：REST 端點已不存在）
+
+- **主題**：web/static/index.html 目前打 http://localhost:8000/mcp/* 的 REST 端點與 eset_to_seed_data — 這些**已不存在**，伺服器只有 MCP Streamable HTTP 一個入口。
+- **我做什麼**：伺服器完成（44 tests green，commit a9cced）；python -m mcp_server → http://127.0.0.1:8765/mcp。
+- **阻塞程度**：**Blocker**（web demo 一定失敗，除非改成 MCP client）
+
+### 現有 JS → 我方契約的逐點對照
+
+| 現有 index.html 假設 | 實際（MCP） | 改法 |
+|---|---|---|
+| etch('http://localhost:8000/mcp/schedule_get?...') GET JSON | 	ools/call schedule_get，回 structuredContent | 用 streamablehttp_client + ClientSession（spike5 已驗證的接線，見 MSG-002 §2） |
+| data.outages[] / data.equipment[].available_from/available_until | open_outages[] / vailable_start/vailable_end（HH:MM） | 改讀 open_outages、vailable_start/end |
+| header 無 token、eset_to_seed_data | Authorization: Bearer tok-manager、工具名 eset_demo_data | token 表照 MSG-002 §3；重置按鈕改 eset_demo_data |
+| pplyPlan() 直接 POST 取得 applied | apply 前伺服器會發 elicitation/create（訊息見 CONTRACT-FROZEN §6） | 你的 elicitation callback 顯示我方 confirm 卡片，{"action":"accept","content":{"confirm":true}} 才會套用；LLM **不可**代答 |
+| change.original_equip/new_equip/user_name | original_equipment/original_equipment_name/new_equipment/new_equipment_name；user 欄位是 user | 照 contracts/examples/schedule_apply_replan_applied.json 的實際欄位 |
+| 直接吃 HTTP JSON 錯誤 | 失敗仍是正常 structuredContent（status 欄位換值，isError=false） | UI 以 status 分支渲染，錯誤碼表在 CONTRACT-FROZEN §2.2/§4–6 |
+| 訊息渲染自拼字串 | esult.message 已是人類可讀敘事（LLM 層），可直接顯示 | ddMessage(data.message, 'ai') |
+
+**推薦最小改動**：把 schedule_get 換成真 	ools/call，其餘 etch 全刪，四按鈕（report outage / propose / apply+confirm 卡 / reset）各自 call_tool。contracts/examples/ 13 個檔案每個按鈕的成功與失敗回覆都在裡面，照欄位渲染即可。
+- **我需要什麼**：改完後在本機跑 python -m mcp_server（port 8765）+ cd web; python app.py（port 8080），全套 demo 流程點一輪；不通就 append INBOX-lead.md，標 Major。
