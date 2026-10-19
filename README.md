@@ -1,177 +1,130 @@
 # Shared Equipment Rescue
 
-**A voice-first Alexa+ style add-on that helps shared-facility managers recover a day's bookings when an instrument goes down — powered by a self-hosted MCP server that proposes rule-checked replans and never writes changes without human confirmation.**
+**A facility manager's AI copilot for shared-instrument outage recovery — a self-hosted MCP 2025-11-25 server that detects every booking an outage breaks, proposes a rule-checked replan, and never writes a single change without explicit human confirmation (MCP elicitation, human-in-the-loop).**
 
-## Overview
+Amazon "Build, Ship, Shape" hackathon entry — **Alexa+ primary track** + **AWS Builder challenge** (Amazon Bedrock).
 
-When critical shared equipment fails, it can disrupt multiple reservations across a facility. This tool automates the rebooking process by:
+## What it does
 
-1. **Detecting** affected appointments when equipment goes down
-2. **Proposing** optimal replacement times based on configurable rules (deadlines, preferences, availability)
-3. **Validating** all suggestions follow stated policies before application
-4. **Confirming** through structured elicitation (human-in-the-loop approval required)
+When a confocal microscope (or any shared instrument) goes down mid-day, a manager normally rebooks six papers by hand. This server does the whole recovery loop over MCP:
 
-Unlike simple wrapper APIs, this implements a multi-step agent workflow where the AI model orchestrates tool calls while strict rule enforcement ensures no suggestion violates policy constraints.
+1. **Report** the outage → engine instantly marks affected bookings `blocked`, bumps `schedule_version`, writes an audit log row.
+2. **Propose** a replan → greedy scheduler searches 15-minute increments, FIFO by deadline, enforcing operating hours, per-user equipment permissions, personal calendars, hard deadlines, and a 15-minute post-session buffer — changes carry machine-readable reason codes; impossible items return **per-equipment `earliest_possible` diagnostics** (`available_only_after`, `available_after_deadline` + `deadline_would_need at_least "12:15"`, `no_permission` blockers), never a bare failure.
+3. **Apply** → the tool calls `ctx.elicit()` and **refuses to mutate** until a human confirms in the client UI. Decline / cancel / unsupported client → `not_confirmed`, zero side effects, plan stays `proposed`.
+4. **Idempotency everywhere**: `plan_id` = `(outage_id, based_on_version)`, monotonic `schedule_version`, stale proposals rejected (`plan_stale`), re-apply → `already_applied`.
 
-## Features
-
-- ✅ **MCP 2025-11-25** compliant server with Streamable HTTP transport
-- ✅ **Rule-based scheduling engine** with deadline awareness and buffer management  
-- ✅ **Elicitation workflow** requiring explicit human confirmation before changes
-- ✅ **Transaction-safe updates** with version control and rollback capability
-- ✅ **Graceful degradation** when optimal scheduling is impossible under current constraints
-- ✅ **Audit trail** via change logs for compliance tracking
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.10 or higher
-- pip package manager
-
-### Installation
+## Quick start
 
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Initialize database with seed data
-python -c "from mcp_server import init_database, seed_database; init_database(); seed_database()"
-
-# Start MCP server
-python -m mcp_server.server
+pip install -r requirements.txt        # mcp==1.30.0, uvicorn[standard], pydantic>=2.5
+python -m mcp_server                   # → http://127.0.0.1:8765/mcp
 ```
 
-Server will listen at `http://localhost:8000`
+Optional flags: `python -m mcp_server --host 127.0.0.1 --port 8765 --db server.db`
 
-### API Usage
+### Talk to it with any MCP client
 
-#### 1. View Current Schedule
-```bash
-curl http://localhost:8000/mcp/schedule_get?unit_id=lab-a&date=2026-10-20
+```python
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+headers = {"authorization": "Bearer tok-manager"}   # header-only auth
+
+async def confirm_outage(message, schema):          # MUST be async
+    # message lists what will move; schema is {"confirm": bool}
+    return ElicitResult(action="accept", content={"confirm": True})
+
+async with streamablehttp_client("http://127.0.0.1:8765/mcp", headers=headers) as (r, w, _):
+    async with ClientSession(r, w, elicitation_callback=confirm_outage) as s:
+        await s.initialize()
+        res = await s.call_tool("schedule_get", {})        # res.structuredContent
 ```
 
-Returns: Bookings, equipment list, active outages, pending plans
+Clients **without** an elicitation callback are safe by design: apply returns `not_confirmed` and nothing changes.
 
-#### 2. Report Equipment Outage
-```bash
-curl http://localhost:8000/mcp/equipment_report_outage \
-  -H "Content-Type: application/json" \
-  -d '{
-    "equipment_id": "confocal-a",
-    "start": "2026-10-20T10:00:00",
-    "end": "2026-10-20T16:00:00",
-    "reason": "Laser failure - requires service call"
-  }'
-```
+### Demo tokens (Authorization: Bearer …)
 
-Returns: Affected bookings list
+| token | role | can see / do |
+|---|---|---|
+| `tok-manager` | manager | both confocals; write tools |
+| `tok-chen` | researcher | confocal-a + confocal-b |
+| `tok-wang` | researcher | confocal-a only |
+| `tok-li` | researcher | confocal-b only |
 
-#### 3. Propose Replan
-```bash
-curl http://localhost:8000/mcp/schedule_propose_replan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "outage_id": "outage_abc123",
-    "schedule_version": 5
-  }'
-```
+Identity comes **only** from the per-request header — never from tool arguments.
 
-Returns: Proposed changes with reasons, unresolved items
+## The six tools (contracts/)
 
-#### 4. Apply Replan (after confirmation)
-```bash
-curl http://localhost:8000/mcp/schedule_apply_replan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "plan_id": "plan_xyz789",
-    "schedule_version": 6
-  }'
-```
+`contracts/tools.json` holds the machine-readable input/output schemas (generated verbatim from the live tool registry, locked by tests). `contracts/examples/` holds 13 frozen end-to-end fixtures replayed byte-exact in CI:
 
-Requires successful elicitation confirmation from user
+| tool | writes? | notes |
+|---|---|---|
+| `schedule_get` | no | full day view, role-masked, narration in `message` |
+| `equipment_report_outage` | **yes** | manager-only; duplicates rejected |
+| `schedule_propose_replan` | no (creates plan row) | stale-check + idempotent plan_id |
+| `schedule_apply_replan` | **yes** | **elicitation-gated**; human confirm required |
+| `reset_demo_data` | **yes** | manager-only; restores seed schedule (version 1) |
+| `debug_confirm` | no | echoes elicitation wiring for client bring-up |
+
+## Engine guarantees (§10 rules)
+
+1. Only `movable` bookings affected by the outage are rescheduled.
+2. FIFO by deadline; ties by original start.
+3. 15-min slot grid; original equipment preferred if still available ≥ required duration.
+4. Hard constraints: operating hours, per-user equipment grants, personal calendar (no double-booking), hard deadline, 15-min post-session cleaning buffer.
+5. Greedy, determinstic — no randomness, no LLM decisions in the write path.
+
+**Demo day (2026-10-20, Europe/London):** outage on Confocal A 10:00–16:00 ⇒ `B2 → Confocal B 11:15–12:15` (first slot after Li's immovable B3), `B4 → Confocal A 16:00–17:00` (after outage). Failing both (deadline 11:30 scenario) yields per-equipment diagnostics: B could host 11:15–12:15 `available_after_deadline` + `deadline_would_need at_least 12:15`; A shows `no_slot_today` — while B4 still relocates to A 16:00 in the same plan.
+
+## LLM layer (dual-mode, §7 of the plan)
+
+`mcp_server/llm.py` — **no AWS credentials? Everything still works.**
+
+- `SER_LLM_MODE=auto|scripted|bedrock` (default `auto`).
+- Bedrock path: single `Converse` call with a system prompt that hard-binds the six prohibitions (never invent facts, never override the engine, never reorder tool args, never claim authority, never unmask other users, never claim to be the system of record — the DB is). Any failure → scripted fallback, so the demo cannot break live.
+- Scripted path: deterministic narration built only from returned JSON facts.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│        Browser UI (Optional)        │
-│  • Voice input / Web Speech API     │
-│  • Visual schedule cards            │
-│  • Elicitation confirmation panels  │
-└───────────────┬─────────────────────┘
-                │ HTTP + SSE
-┌───────────────┴─────────────┐
-│ MCP Host (Agent Loop)       │
-│ • Bedrock Converse API      │
-│ • MCP Client Session        │
-│ • Event Streaming           │
-└───────────────┬─────────────┘
-                │ Streamable HTTP
-┌───────────────┴─────────────┐
-│ MCP Server (This Project)   │
-│ • FastMCP Framework         │
-│ • Schedule Engine           │
-│ • SQLite Database           │
-└─────────────────────────────┘
+Browser (web/)                MCP host/agent (Bedrock or any MCP client)      This repo
+┌────────────────┐            ┌──────────────────────────┐   Streamable      ┌─────────────────────────┐
+│ schedule cards │  ──MCP──▶  │ agent loop, tool calls,  │  ──HTTP+MCP──▶    │ FastMCP server           │
+│ elicitation UI │            │ elicitation prompt       │   127.0.0.1:8765  │  engine + SQLite + audit │
+└────────────────┘            └──────────────────────────┘                   └─────────────────────────┘
 ```
 
-## Scheduled Rules
+`web/` is owned by the partner AI (see `COLLAB/`); write scope is `mcp_server/`, `contracts/`, `tests/`, `docs/`, root docs.
 
-The algorithm enforces these constraints when generating replacement slots:
+## Tests
 
-1. Only affected and movable bookings are rescheduled
-2. Process earliest deadlines first (FIFO per deadline urgency)
-3. Each booking searches in 15-minute increments from original time
-4. Validates against:
-   - Equipment operating hours
-   - User access permissions
-   - Personal availability (no double-booking)
-   - Hard deadlines
-   - Required buffer time between sessions (default: 15 min)
-5. Prefers original equipment when available
-6. Uses greedy approach; may not find optimal solution but guarantees correctness
+```bash
+python -X utf8 -m pytest tests/ -q      # 44 passed
+```
 
-## Demo Scenario
+- `test_engine.py` (10): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression.
+- `test_contract.py` (17): schema equality against `contracts/tools.json` + byte-exact replay of 13 frozen examples under `SER_FROZEN_NOW=2026-10-20T12:00:00+01:00`.
+- `test_server.py` (7): **real uvicorn + real MCP client** over Streamable HTTP — auth tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset.
+- `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
 
-Six bookings across two confocal microscopes (Confocal A & B):
+Windows note: use `python -X utf8` to keep pytest output clean.
 
-| ID | User | Device | Original Time | Deadline | Movable |
-|----|------|--------|---------------|----------|---------|
-| B1 | Wang | Confocal A | 09:00-10:00 | — | Yes |
-| B2 | Chen | Confocal A | 10:00-11:00 | 13:00 | Yes |
-| B3 | Li | Confocal B | 10:00-11:00 | — | **No** |
-| B4 | Wang | Confocal A | 11:00-12:00 | 18:00 | Yes |
-| B5 | Li | Confocal B | 14:00-15:00 | — | Yes |
-| B6 | Chen | Confocal B | 15:00-16:00 | — | Yes |
+## Development docs
 
-**Outage:** Confocal A unavailable 10:00-16:00
+- `docs/friction-log.md` — 7 hard-won findings (SSE-only elicitation, async-callback requirement, `Context.request_context.request.headers`, engine visibility fix, `SER_FROZEN_NOW` clock freeze).
+- `docs/product-feedback.md` — MCP-ecosystem observations (elicitation gaps, json_response hazard).
+- `COLLAB/CONTRACT-FROZEN.md` — the partner contract; `COLLAB/OUTBOX.md` has the client wiring guide.
 
-**Expected Reschedule:**
-- **B2 → Confocal B** 11:15-12:15 (earliest slot after Li's fixed booking)
-- **B4 → Confocal A** 16:00-17:00 (after outage resolution)
+## Tech choices
 
-## Technology Choices
-
-| Component | Selection | Rationale |
-|-----------|-----------|-----------|
-| MCP Server | FastMCP (Python SDK) | Official implementation, Streamable HTTP support |
-| Database | SQLite | Lightweight, transactional, portable |
-| Agent Model | Amazon Bedrock (Claude) | AWS Builder Challenge alignment |
-| Transport | Streamable HTTP | Latest MCP specification (2025-11-25) |
-
-## Contributing
-
-This is a competition entry. For questions or issues, please open a GitHub issue.
+| Component | Choice | Why |
+|---|---|---|
+| MCP SDK | `mcp==1.30.0` (FastMCP) | official, 2025-11-25 spec, elicitation support |
+| Transport | Streamable HTTP (SSE responses) | required for server→client elicitation |
+| DB | SQLite (`server.db`) | transactional versioning + audit log, zero ops |
+| Agent model | Amazon Bedrock (Claude) | AWS Builder challenge; scripted fallback keeps demo offline-safe |
+| Narration | Bedrock Converse / scripted | dual-mode §7 |
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Disclaimer
-
-This prototype uses synthetic demo data. All user names, schedules, and equipment references are fictional and for demonstration purposes only. Not intended for production use without additional security hardening and integration testing.
+MIT — see LICENSE. Synthetic demo data; not production-hardened.
