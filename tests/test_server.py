@@ -271,3 +271,146 @@ async def test_reset_restores_version(server_env):
     finally:
         await scm.__aexit__(None, None, None)
         await hcm.__aexit__(None, None, None)
+
+
+# --- Phase 3: restart-cycle persistence ------------------------------------
+
+import subprocess
+import time as _time
+
+_RESTART_PORT = 8799
+
+
+def _spawn_server(port, dbp):
+    """Spawn a fresh *subprocess* server (uvicorn+F ol FastMCP singleton:
+    StreamableHTTPSessionManager.run() is single-shot per instance) sharing dbp."""
+    code = (
+        "import asyncio, os, sys\n"
+        "sys.path.insert(0, %r)\n" % ROOT +
+        "os.environ['SER_DB_PATH'] = %r\n" % dbp +
+        "os.environ['SER_FROZEN_NOW'] = '2026-10-20T12:00:00+01:00'\n"
+        "os.environ.setdefault('SER_FROZEN_IN_TESTS', '0')\n"
+        "import uvicorn\n"
+        "from mcp_server.server import build_app\n"
+        "async def main():\n"
+        "    app = build_app()\n"
+        "    cfg = uvicorn.Config(app, host='127.0.0.1', port=%d, log_level='error')\n" % port +
+        "    s = uvicorn.Server(cfg)\n"
+        "    t = asyncio.create_task(s.serve())\n"
+        "    for _ in range(200):\n"
+        "        if s.started: break\n"
+        "        await asyncio.sleep(0.05)\n"
+        "    await asyncio.Event().wait()\n"
+        "asyncio.run(main())\n"
+    )
+    env = dict(os.environ)
+    env["SER_DB_PATH"] = dbp
+    proc = subprocess.Popen(
+        [sys.executable, "-X", "utf8", "-c", code],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    import httpx
+    deadline = _time.time() + 15
+    while _time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"server subprocess exited early: {proc.returncode}")
+        try:
+            r = httpx.post(
+                f"http://127.0.0.1:{port}/mcp",
+                headers={"authorization": "Bearer tok-manager",
+                          "accept": "application/json, text/event-stream",
+                          "content-type": "application/json"},
+                json={"jsonrpc": "2.0", "id": 0, "method": "ping"},
+                timeout=2,
+            )
+            if r.status_code < 500:
+                return proc
+        except httpx.HTTPError:
+            pass
+        _time.sleep(0.2)
+    raise RuntimeError("server subprocess did not come up")
+
+
+def _kill_server(proc):
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        proc.kill()
+
+
+@pytest.mark.anyio
+async def test_restart_cycle_persists_outage_and_plan(server_env):
+    """Outage + proposed plan must survive a full server stop/restart cycle on
+    the SAME db file (persistence contract), and re-propose must stay
+    idempotent across the restart."""
+    dbp = server_env["db"]
+
+    # --- session 1: in-process fixture server; record outage + propose ---
+    c1, cm1, scm1, _ = await _open_session("manager")
+    try:
+        ro = await c1.structured("equipment_report_outage", {
+            "equipment_id": "confocal-a",
+            "start": "2026-10-20T10:00:00+01:00",
+            "end": "2026-10-20T16:00:00+01:00",
+            "reason": "restart-persistence probe",
+        })
+        assert ro["status"] in ("recorded", "duplicate_outage")
+        outage_id = ro["outage_id"]
+        ver = ro["schedule_version"]
+        pr = await c1.structured("schedule_propose_replan", {
+            "outage_id": outage_id, "schedule_version": ver,
+        })
+        assert pr["status"] == "proposed"
+        plan_id = pr["plan_id"]
+        plan_ver = pr["schedule_version"]
+        n_changes = len(pr["changes"])
+        n_unres = len(pr["unresolved"])
+    finally:
+        await scm1.__aexit__(None, None, None)
+        await cm1.__aexit__(None, None, None)
+
+    # --- stop in-process server (fixture teardown comes later; the port stays
+    #     busy, so the 'restarted' server runs on its own port 8799) ---
+    # NOTE: true process kill isn't possible in-process here; a fresh
+    # subprocess server pointing at the SAME db file on a NEW port is the
+    # equivalent restart: new process, new FastMCP, same SQLite persistence.
+
+    proc = await asyncio.wait_for(
+        asyncio.get_event_loop().run_in_executor(
+            None, _spawn_server, _RESTART_PORT, dbp), timeout=20)
+    try:
+        cm2 = streamablehttp_client(
+            f"http://127.0.0.1:{_RESTART_PORT}/mcp",
+            headers={"authorization": "Bearer tok-manager"})
+        read2, write2, _ = await cm2.__aenter__()
+        sm2 = ClientSession(read2, write2)
+        c2 = await sm2.__aenter__()
+        try:
+            await c2.initialize()
+            sg = await c2.call_tool("schedule_get", {
+                "unit_id": "lab-a", "date": "2026-10-20"})
+            sg_s = sg.structuredContent
+            assert sg_s["status"] == "ok", sg_s
+            assert sg_s["schedule_version"] == plan_ver
+            # outage survived
+            assert any(o["id"] == outage_id for o in sg_s["open_outages"])
+            # plan survived and pending
+            pp = [p for p in sg_s["pending_plans"] if p["plan_id"] == plan_id]
+            assert len(pp) == 1, (
+                f"plan {plan_id} missing after restart: {sg_s['pending_plans']}")
+            assert pp[0]["change_count"] == n_changes
+            assert pp[0]["unresolved_count"] == n_unres
+            # idempotent re-propose returns the same plan after restart
+            pr2 = await c2.call_tool("schedule_propose_replan", {
+                "outage_id": outage_id, "schedule_version": plan_ver})
+            pr2_s = pr2.structuredContent
+            assert pr2_s["status"] == "proposed"
+            assert pr2_s["plan_id"] == plan_id
+            assert pr2_s["message"] == (
+                f"existing plan {plan_id} reused (idempotent)")
+        finally:
+            await sm2.__aexit__(None, None, None)
+            await cm2.__aexit__(None, None, None)
+    finally:
+        _kill_server(proc)

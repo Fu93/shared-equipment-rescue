@@ -88,10 +88,28 @@ def ensure_ready() -> None:
 
 
 def initialize_storage() -> None:
-    """Create schema and seed demo data (version=1). Called at startup."""
+    """Create schema; seed demo data ONLY on a fresh (empty) database.
+
+    Restart persistence: if the db already exists (schema has meta.version),
+    the stored outage/plan/booking state is kept — a server restart or crash
+    must never silently wipe the manager's work. Explicit reset stays available
+    via the reset_demo_data tool. FRESHSEED=1 env forces a reseed (used by
+    contract/example regen tooling)."""
     path = _db_path()
     dbm.configure(path)
     dbm.init_db(path)
+    if os.environ.get("SER_FRESHSEED") == "1":
+        _reseed()
+        return
+    conn = dbm.connect()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM bookings"
+        ).fetchone()
+    finally:
+        conn.close()
+    if row[0] > 0:
+        return  # existing data: keep it (restart persistence)
     _reseed()
 
 
