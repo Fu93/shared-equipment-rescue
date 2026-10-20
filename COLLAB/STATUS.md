@@ -1,3 +1,11 @@
+## 2026-10-20 12:20 — Lead（全案接手 × Phase 1–3 完成回報）
+- 12:05 人類指示「你現在負責接手整個計畫 對方不做了」→ TASKS.md 改制（PA1–3 → T-A/B/C1，Owner=lead）。
+- Phase 1 後端：audit logging（ser.server logger, SER_LOG_LEVEL, additive；schedule_get/report/propose/apply/reset+elicitation 結果+rollback 全覆蓋）＋ 引擎邊界補測 6 條（半開區間、零時長純引擎語義、零 buffer 背對背）。commit 358f407 + 5719ee1 + c97fb0e（untrack pycache）。
+- Phase 2 前端：加法式 CSS（訊息/橫幅/卡片/日誌動畫、按鈕 hover/press、loading 脈動、prefers-reduced-motion、≤1100px 響應式堆疊、設備欄堆疊）、dev-header codicon tofu 修成可渲染 glyph（780/1440 截圖驗證）。commit 61a384c。
+- Phase 3 核心：**重啟持久化**（initialize_storage 僅在全新/空 db 時 seed，或 SER_FRESHSEED=1 強制；crash/restart 不再清掉 manager 的 outage/plan）＋ 重啟循環子程序測試（同 db 兩台 server 生命週期、跨重啟 re-propose 幂等回同 plan_id）。commit bf68f66。regen byte-stable 驗證通過。
+- 拒絕理由措辭：**不動**（既有訊息已帶具體 id/version/數量；凍結線前改措辭風險>收益，契約 byte-lock 維持）。
+- 閘門：pytest 51（44+6+1）/ CLI E2E 19/19 / 瀏覽器 E2E 20/20 全綠；contracts/tools.json 無 diff。
+
 ## 2026-10-20 12:55 — Lead（巡檢 round 4 · E2E 確定性）
 - 雙跑測定：瀏覽器 E2E 連續兩輪 20/20、CLI E2E 連續兩輪 ALL PASS、pytest 連續兩輪 44 passed → **零 flake**。
 - 8 warnings 皆來自 mcp==1.30.0 lib 內部 deprecation（contextlib 層），非本專案代碼；imports 使用現行 API（streamablehttp_client），無升級風險。
