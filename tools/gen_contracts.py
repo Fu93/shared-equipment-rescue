@@ -9,11 +9,11 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp_server.server import mcp  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contracts", "tools.json")
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "contracts", "tools.json")
 
 
 async def main():
