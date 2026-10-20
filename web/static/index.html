@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shared Equipment Rescue ??MCP Demo</title>
+    <title>Shared Equipment Rescue — MCP Demo</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -168,10 +168,10 @@
 <body>
     <!-- Left Panel -->
     <div class="chat-panel">
-        <div class="chat-header">?? Shared Equipment Rescue</div>
+        <div class="chat-header">🚀 Shared Equipment Rescue</div>
         <div class="chat-messages" id="chatMessages">
             <div class="message ai-message">
-                Hi! I'm the shared-equipment scheduling assistant. Pick a role on the right, then report an equipment outage ??I'll propose a replan and ask you to confirm before anything is applied.
+                Hi! I'm the shared-equipment scheduling assistant. Pick a role on the right, then report an equipment outage — I'll propose a replan and ask you to confirm before anything is applied.
             </div>
         </div>
         <div class="chat-input">
@@ -183,11 +183,11 @@
     <!-- Middle Panel -->
     <div class="schedule-panel">
         <div class="schedule-bar">
-            <h2>Schedule ??<span id="schedDate">2026-10-20</span></h2>
+            <h2>Schedule — <span id="schedDate">2026-10-20</span></h2>
             <span class="badge v" id="verBadge">v-</span>
             <span class="badge role" id="roleBadge">not connected</span>
         </div>
-        <div id="scheduleContent"><p>Connecting??/p></div>
+        <div id="scheduleContent"><p>Connecting…</p></div>
     </div>
 
     <!-- Right Panel -->
@@ -200,32 +200,32 @@
             <div class="control-row">
                 <label>Acting as (auth token):</label>
                 <select id="userSelect" onchange="changeUser()">
-                    <option value="tok-manager">Priya ??Manager (tok-manager)</option>
-                    <option value="tok-chen">Dr. Chen ??Researcher A+B (tok-chen)</option>
-                    <option value="tok-wang">Dr. Wang ??Researcher A (tok-wang)</option>
-                    <option value="tok-li">Dr. Li ??Researcher B (tok-li)</option>
+                    <option value="tok-manager">Priya 👤 Manager (tok-manager)</option>
+                    <option value="tok-chen">Dr. Chen 👤 Researcher A+B (tok-chen)</option>
+                    <option value="tok-wang">Dr. Wang 👤 Researcher A (tok-wang)</option>
+                    <option value="tok-li">Dr. Li 👤 Researcher B (tok-li)</option>
                 </select>
             </div>
             <div class="control-row">
                 <button onclick="resetDemo()">Reset demo data</button>
             </div>
-            <div class="llm-mode" id="llmMode">identity comes from the token ??never from tool args</div>
+            <div class="llm-mode" id="llmMode">identity comes from the token — never from tool args</div>
         </div>
     </div>
 
     <!-- Confirm Card Overlay -->
     <div class="overlay" id="confirmOverlay"></div>
     <div class="confirm-card hidden" id="confirmCard">
-        <h3>?? Apply this replan?</h3>
-        <div class="src">MCP elicitation/create ??only your click answers this. The LLM cannot confirm for you.</div>
+        <h3>🔑 Apply this replan?</h3>
+        <div class="src">MCP elicitation/create — only your click answers this. The LLM cannot confirm for you.</div>
         <div class="confirm-changes" id="confirmChanges"></div>
         <div class="confirm-buttons">
-            <button class="confirm-btn" id="confirmYes">Confirm ??/button>
-            <button class="cancel-btn" id="confirmNo">Cancel ??/button>
+            <button class="confirm-btn" id="confirmYes">Confirm ✓</button>
+            <button class="cancel-btn" id="confirmNo">Cancel ✗</button>
         </div>
     </div>
 
-    <div class="hidden" id="loading">??Working??/div>
+    <div class="hidden" id="loading">⏳ Working</div>
 
     <script type="module">
         import { createSession, callTool, closeSession } from '/static/mcp-client.bundle.js';
