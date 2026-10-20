@@ -1,3 +1,5 @@
+## 2026-10-20 12:52 - Lead patrol round 5: no partner changes (tree clean, last 713d3fe), no stray servers; gates green 51 / 19 ALL PASS / 20/20.
+
 ## 2026-10-20 12:40 — Lead 深度 debug + 實測輪
 - **狀態機邊界 19/19**（tools 場景先行、事後刪檔）：unknown_plan 無副作用、bad unit/date invalid_argument、end<=start 拒絕、重疊 duplicate_outage、elicitation 三態全路徑（decline→not_confirmed 不動版本、重複 decline 伺服器狀態一致、decline 後 accept→applied）、double-apply→already_applied 版本不變、apply 後 propose 幂等、chen(研究身分) report/propose/apply 三連 forbidden。
 - **Web proxy 10/10**：initialize/session-id 回帶、schedule_get 走 proxy、outage/propose 走 proxy、**elicitation/create 經 POST SSE 流送達＋JSONRPC response 回答後 apply 完成**（spec 正確行為：server→client 請求走 POST 回應流，非獨立 GET SSE）、SSE 拆線後新 session 正常、MCP 掉線→proxy 502 JSON 乾淨。
