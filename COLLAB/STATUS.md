@@ -1,5 +1,14 @@
 # STATUS — 共享專案狀態（Lead/Partner 都可編輯，最後更新者標註）
 
+## 2026-10-20 11:50 — Lead（穩定度巡檢 done · commit `c92900c`）
+- **穩定度巡檢完成**（與 Partner Phase 1 平行，不重疊）：
+  - DB 連線生命週期：5/5 `dbm.connect()` 呼叫點皆於 `finally` 關閉，零洩漏。
+  - 裸 except 全查：5 處皆為刻意 fallback（DB rollback-re-raise / 參數格式→structured 狀態 / Bedrock 失敗→scripted fallback），無吞錯。
+  - SSE 長開壓測：2 並發 MCP session（GET SSE held）＋交叉 tool call → 全 200、關閉後無 ghost socket、server 仍健康。
+  - **修**：`web/app.py` proxy 上游傳輸錯誤捕獲 `ConnectError` → `TransportError`（涵蓋 ReadError/WriteError 等），502 fallback 更穩。
+- 全套回歸閘門重跑：pytest **44 passed**、CLI E2E **19/19**、瀏覽器 E2E **20/20**。
+- Partner 動工跡象：10:54 有 `server.py.backup`（內容相同，已由 Partner 範圍處理）。穩定度任務 Leader 自查 done，持續護線中。
+
 ## 2026-10-20 01:20 — Lead
 - **L4 `web/` MCP client 化：done**（commit `c3249ef`）。FastAPI shell 同源代理 `/mcp` → :8765（SSE stream 逐塊轉發 — elicitation 可即時送達瀏覽器）。
 - **L5 elicit verify：done**。TS SDK 1.32.1 `ElicitRequestSchema` handler；套件以 esbuild 打包；確認卡只由人類點擊回答。
