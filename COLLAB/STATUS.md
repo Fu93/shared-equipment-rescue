@@ -1,3 +1,11 @@
+## 2026-10-20 13:26 - Lead deep-debug round 2 (delivery hardening): +20 new checks, docs truth-sync
+- **Deep4 reset/reseed integrity 10/10**: apply->reset restores byte-identical schedule snapshot (version + bookings JSON equal), reset x2 stable, post-reset replay deterministic (O1 + complete propose).
+- **Deep5 frontend polish audit 15/15**: long-text overflow guards, escapeHtml on all user/reason injections, animations + prefers-reduced-motion, hover/active on buttons, no private-use glyphs, 780px panels stack vertically with zero horizontal overflow (verified live via Playwright), rapid-refresh no JS errors.
+- **Deep6 delivery sweep 7/7**: README/docs file refs all resolve; SUBMISSION_CHECKLIST script beats map to real UI actions; perf p50 schedule_get <300ms, propose <1s, apply <1.5s.
+- **Docs truth-sync fixes** (the only real findings): README said "44 passed"/"test_llm.py missing" era - now 51 + test_engine_edges + restart-cycle test documented; SUBMISSION_CHECKLIST header/step counts updated to 51. Zero product-code changes.
+- Recovery: Windows temp cleaner wiped both boot scripts; rebuilt tools/dev_server2.py (fresh-db boot, subprocess-ready) and its browser-e2e boot path.
+- Final gates all green: pytest **51** / CLI E2E **19/19** / browser **20/20**; probes deleted; tree clean.
+
 ## 2026-10-20 12:52 - Lead patrol round 5: no partner changes (tree clean, last 713d3fe), no stray servers; gates green 51 / 19 ALL PASS / 20/20.
 
 ## 2026-10-20 12:40 — Lead 深度 debug + 實測輪

@@ -110,12 +110,13 @@ carried solely in the `Authorization: Bearer <token>` header, never in tool argu
 ## Tests
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 44 passed
+python -X utf8 -m pytest tests/ -q      # 51 passed
 ```
 
 - `test_engine.py` (10): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression.
+- `test_engine_edges.py` (6): boundary edges — half-open intervals, zero-duration, zero-buffer adjacency, unknown equipment.
 - `test_contract.py` (17): schema equality against `contracts/tools.json` + byte-exact replay of 13 frozen examples under `SER_FROZEN_NOW=2026-10-20T12:00:00+01:00`.
-- `test_server.py` (7): **real uvicorn + real MCP client** over Streamable HTTP — auth tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset.
+- `test_server.py` (18): **real uvicorn + real MCP client** over Streamable HTTP — auth tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset, and a **crash/restart cycle** that proves outage + pending plan survive a server restart (subprocess, same SQLite file).
 - `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
