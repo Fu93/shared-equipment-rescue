@@ -1,3 +1,8 @@
+## 2026-10-20 12:55 — Lead（巡檢 round 4 · E2E 確定性）
+- 雙跑測定：瀏覽器 E2E 連續兩輪 20/20、CLI E2E 連續兩輪 ALL PASS、pytest 連續兩輪 44 passed → **零 flake**。
+- 8 warnings 皆來自 mcp==1.30.0 lib 內部 deprecation（contextlib 層），非本專案代碼；imports 使用現行 API（streamablehttp_client），無升級風險。
+- 順帶確認 root _shot 截圖不殘留（E2E 由 repo root 跑時會落 root，已清）。
+
 ## 2026-10-20 12:40 — Lead（巡檢 round 3 · 身分隔离）
 - 並發身分隔离探測：同時兩個 bearer session（tok-manager / tok-chen）各自 schedule_get → viewer 逐一正確（Priya / Chen）、訂位數一致、無 cross-session 洩漏。identity 純由 header token 決定 ✅。
 - 暫存探針已清（web/_soak.py、web/_ident_probe.py）。工作樹乾淨。
