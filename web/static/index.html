@@ -1,710 +1,687 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shared Equipment Rescue - Demo</title>
+    <title>Shared Equipment Rescue ??MCP Demo</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            height: 100vh;
             display: flex;
+            height: 100vh;
             overflow: hidden;
+            background: #f4f6f8;
         }
-        
-        /* Left panel: Chat */
+
+        /* Left panel: narration */
         .chat-panel {
-            width: 300px;
+            width: 320px;
             background: white;
-            border-right: 1px solid #ddd;
+            border-right: 1px solid #dfe4e8;
             display: flex;
             flex-direction: column;
         }
-        
         .chat-header {
-            padding: 15px;
-            background: #2c3e50;
+            background: #14532d;
             color: white;
-            text-align: center;
+            padding: 14px 16px;
+            font-weight: 600;
         }
-        
         .chat-messages {
             flex: 1;
             overflow-y: auto;
-            padding: 15px;
+            padding: 14px;
         }
-        
-        .message {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        
-        .user-message {
-            background: #3498db;
-            color: white;
-            margin-left: 20px;
-        }
-        
-        .ai-message {
-            background: #ecf0f1;
-            margin-right: 20px;
-        }
-        
-        .system-message {
-            background: #f39c12;
-            color: white;
-            margin: 10px 20px;
-        }
-        
+        .message { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+        .ai-message { background: #eef6ee; border-left: 3px solid #27ae60; }
+        .system-message { background: #f0f2f5; color: #566; }
+        .outage-message { background: #fdecea; border-left: 3px solid #e74c3c; }
+        .reason-note { font-size: 12px; color: #777; font-style: italic; margin-top: 4px; }
+
         .chat-input {
-            padding: 15px;
-            border-top: 1px solid #ddd;
+            display: flex; padding: 10px; border-top: 1px solid #e5e5e5;
         }
-        
         .chat-input input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
+            flex: 1; padding: 9px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;
         }
-        
         .chat-input button {
-            margin-top: 10px;
-            width: 100%;
-            padding: 10px;
-            background: #2c3e50;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
+            margin-left: 8px; padding: 9px 14px; background: #14532d; color: white;
+            border: none; border-radius: 4px; cursor: pointer;
         }
-        
-        .chat-input button:hover {
-            background: #34495e;
-        }
-        
-        /* Middle panel: Schedule */
+
+        /* Middle panel: schedule */
         .schedule-panel {
             flex: 1;
-            background: white;
-            border-right: 1px solid #ddd;
-            padding: 20px;
             overflow-y: auto;
+            padding: 18px 22px;
         }
-        
-        .equipment-column {
-            display: inline-block;
-            vertical-align: top;
-            width: 48%;
-            margin: 5px;
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
+        .schedule-bar {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            margin-bottom: 14px;
         }
-        
-        .equipment-header {
-            font-weight: bold;
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #2c3e50;
+        .schedule-bar h2 { font-size: 18px; color: #1a2a3a; margin-right: auto; }
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 12px; background: #e2e8f0; color: #334;
         }
-        
-        .time-slot {
-            padding: 8px;
-            margin: 5px 0;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 13px;
-            position: relative;
-        }
-        
-        .booking {
-            border-left: 3px solid #3498db;
-        }
-        
-        .booking.blocked {
-            border-left: 3px solid #e74c3c;
-            background: #fadbd8;
-        }
-        
-        .booking.unresolved {
-            border-left: 3px solid #f39c12;
-            background: #fdebd0;
-        }
-        
-        .booking.proposed-change {
-            border-left: 3px solid #27ae60;
-            background: #d5f4e6;
-            text-decoration: line-through;
-            opacity: 0.7;
-        }
-        
+        .badge.v { background: #dbeafe; color: #1d4ed8; }
+        .badge.role { background: #fef3c7; color: #92400e; }
+
         .outage-banner {
-            background: #e74c3c;
-            color: white;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            text-align: center;
+            background: #e74c3c; color: white; padding: 9px 14px;
+            border-radius: 5px; margin: 8px 0; font-size: 13px;
         }
-        
-        .timeline {
-            height: 10px;
-            background: linear-gradient(to right, 
-                #3498db 0%, #3498db 11.1%, 
-                transparent 11.1%, transparent 22.2%,
-                #3498db 22.2%, #3498db 33.3%,
-                transparent 33.3%, transparent 44.4%,
-                #3498db 44.4%, #3498db 55.5%,
-                transparent 55.5%, transparent 66.6%,
-                #3498db 66.6%, #3498db 77.7%,
-                transparent 77.7%, transparent 88.8%,
-                #3498db 88.8%, #3498db 100%);
-            margin: 10px 0;
-            border-radius: 5px;
+        .plan-banner {
+            background: #f39c12; color: white; padding: 9px 14px;
+            border-radius: 5px; margin: 8px 0; font-size: 13px;
         }
-        
-        /* Right panel: Developer */
+        .ok-note {
+            background: #e8f6ef; color: #14643a; padding: 8px 12px;
+            border-radius: 5px; margin: 8px 0; font-size: 13px;
+        }
+
+        .equipment-grid { display: flex; gap: 14px; margin-top: 10px; }
+        .equipment-column {
+            flex: 1; background: white; border: 1px solid #dfe4e8; border-radius: 8px;
+            padding: 12px; min-height: 300px;
+        }
+        .equipment-header { font-weight: 600; font-size: 14px; color: #1a2a3a; margin-bottom: 4px; }
+        .equipment-window { font-size: 11px; color: #889; margin-bottom: 10px; }
+
+        .booking {
+            border: 1px solid #e2e8f0; border-left: 3px solid #2980b9;
+            border-radius: 5px; padding: 7px 9px; margin-bottom: 7px; font-size: 12px;
+            background: #f8fafc;
+        }
+        .booking .b-time { font-weight: 600; color: #2c3e50; }
+        .booking .b-user { color: #556; }
+        .booking.blocked { border-left-color: #e74c3c; background: #fdecea; }
+        .booking.unresolved { border-left-color: #f39c12; background: #fef5e7; }
+        .booking.masked { border-left-color: #95a5a6; background: #f4f4f4; color: #667; }
+        .booking.deadline { font-size: 10.5px; color: #b03a2e; }
+        .booking .moved-tag { color: #1d4ed8; font-size: 10.5px; }
+
+        .reason-list { margin-top: 3px; font-size: 11px; color: #8a6d3b; }
+
+        .action-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .action-row button {
+            padding: 8px 14px; border: none; border-radius: 5px; cursor: pointer;
+            font-size: 13px; background: #0e639c; color: white;
+        }
+        .action-row button.amber { background: #d68910; }
+        .action-row button.green { background: #1e8449; }
+        .action-row button.gray { background: #7f8c8d; }
+        .action-row button:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        /* Right panel: dev console */
         .dev-panel {
-            width: 350px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            display: flex;
-            flex-direction: column;
+            width: 330px; background: #1e1e1e; color: #d4d4d4;
+            font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 12px;
+            display: flex; flex-direction: column;
         }
-        
-        .dev-header {
-            padding: 10px;
-            background: #252526;
-            color: white;
-        }
-        
-        .dev-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px;
-        }
-        
-        .mcp-message {
-            margin-bottom: 10px;
-            padding: 8px;
-            background: #2d2d2d;
-            border-left: 3px solid #3498db;
-            border-radius: 3px;
-        }
-        
-        .mcp-method {
-            color: #569cd6;
-            font-weight: bold;
-        }
-        
-        .mcp-status {
-            color: #4ec9b0;
-        }
-        
-        .controls {
-            padding: 10px;
-            background: #252526;
-        }
-        
-        .control-row {
-            margin-bottom: 10px;
-        }
-        
-        .control-row label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        
+        .dev-header { padding: 12px; background: #252526; color: white; font-family: 'Segoe UI', sans-serif; }
+        .dev-content { flex: 1; overflow-y: auto; padding: 10px; }
+        .mcp-message { margin-bottom: 8px; padding: 7px 9px; background: #2d2d2d; border-left: 3px solid #3498db; border-radius: 3px; word-break: break-word; }
+        .mcp-message.out { border-left-color: #f39c12; }
+        .mcp-method { color: #569cd6; font-weight: bold; }
+        .mcp-status { color: #4ec9b0; }
+        .mcp-note { color: #999; font-size: 11px; }
+
+        .controls { padding: 12px; background: #252526; }
+        .control-row { margin-bottom: 10px; }
+        .control-row label { display: block; margin-bottom: 4px; font-family: 'Segoe UI', sans-serif; font-size: 12px; color: #aaa; }
         .control-row select, .control-row button {
-            padding: 8px;
-            width: 100%;
-            border-radius: 3px;
-            border: none;
-            cursor: pointer;
+            padding: 8px; width: 100%; border-radius: 4px; border: none; cursor: pointer;
+            font-family: 'Segoe UI', sans-serif; font-size: 13px;
         }
-        
-        .control-row button {
-            background: #0e639c;
-            color: white;
-        }
-        
+        .control-row select { background: #3c3c3c; color: #eee; }
+        .control-row button { background: #0e639c; color: white; }
+        .control-row button.warn { background: #a04000; }
+        .llm-mode { font-family: 'Segoe UI', sans-serif; font-size: 11px; color: #4ec9b0; margin-top: 4px; }
+
+        /* Confirm card */
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; display: none; }
         .confirm-card {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            z-index: 1000;
-            min-width: 400px;
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 26px; border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000; min-width: 430px; max-width: 560px;
         }
-        
-        .confirm-card h3 {
-            margin-bottom: 15px;
-            color: #2c3e50;
-        }
-        
-        .confirm-changes {
-            margin: 15px 0;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        
-        .confirm-item {
-            padding: 10px;
-            background: #f5f5f5;
-            margin: 5px 0;
-            border-radius: 5px;
-        }
-        
-        .confirm-buttons {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-        
-        .confirm-buttons button {
-            flex: 1;
-            padding: 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        
-        .confirm-btn {
-            background: #27ae60;
-            color: white;
-        }
-        
-        .cancel-btn {
-            background: #e74c3c;
-            color: white;
-        }
-        
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 999;
-            display: none;
-        }
-        
-        .hidden {
-            display: none !important;
-        }
-        
+        .confirm-card h3 { margin-bottom: 10px; color: #2c3e50; }
+        .confirm-card .src { font-size: 12px; color: #7f8c8d; margin-bottom: 12px; }
+        .confirm-changes { margin: 12px 0; max-height: 240px; overflow-y: auto; }
+        .confirm-item { padding: 8px 10px; background: #f5f5f5; margin: 5px 0; border-radius: 5px; font-size: 12.5px; }
+        .confirm-item .why { color: #8a6d3b; font-size: 11px; }
+        .confirm-buttons { display: flex; gap: 10px; margin-top: 16px; }
+        .confirm-buttons button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 15px; }
+        .confirm-btn { background: #27ae60; color: white; }
+        .cancel-btn { background: #e74c3c; color: white; }
+
+        .hidden { display: none !important; }
         #loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            z-index: 2000;
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 18px 26px; border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 2000; font-size: 14px;
         }
     </style>
 </head>
 <body>
     <!-- Left Panel -->
     <div class="chat-panel">
-        <div class="chat-header">
-            📋 Shared Equipment Rescue
-        </div>
+        <div class="chat-header">?? Shared Equipment Rescue</div>
         <div class="chat-messages" id="chatMessages">
             <div class="message ai-message">
-                Hello! I'm your shared equipment scheduling assistant. Report an equipment outage and I'll help reschedule affected bookings.
+                Hi! I'm the shared-equipment scheduling assistant. Pick a role on the right, then report an equipment outage ??I'll propose a replan and ask you to confirm before anything is applied.
             </div>
         </div>
         <div class="chat-input">
-            <input type="text" id="userInput" placeholder="Type your message..." onkeypress="if(event.key==='Enter') sendMessage()">
-            <button onclick="sendMessage()">Send Message</button>
+            <input type="text" id="userInput" placeholder="e.g. Confocal A is down until 4pm" onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">Send</button>
         </div>
     </div>
-    
+
     <!-- Middle Panel -->
     <div class="schedule-panel">
-        <h2 style="margin-bottom: 20px;">Schedule - October 20, 2026</h2>
-        <div id="scheduleContent">
-            <p>Loading schedule...</p>
+        <div class="schedule-bar">
+            <h2>Schedule ??<span id="schedDate">2026-10-20</span></h2>
+            <span class="badge v" id="verBadge">v-</span>
+            <span class="badge role" id="roleBadge">not connected</span>
         </div>
+        <div id="scheduleContent"><p>Connecting??/p></div>
     </div>
-    
+
     <!-- Right Panel -->
     <div class="dev-panel">
-        <div class="dev-header">
-            🔧 Developer Console (MCP Logs)
-        </div>
+        <div class="dev-header">? Developer Console (MCP)</div>
         <div class="dev-content" id="mcpLogs">
-            <div class="mcp-message">
-                <span class="mcp-method">System:</span> MCP Server connected at localhost:8000
-            </div>
+            <div class="mcp-message"><span class="mcp-method">System:</span> <span class="mcp-status">not connected</span></div>
         </div>
         <div class="controls">
             <div class="control-row">
-                <label>Quick Actions:</label>
-                <button onclick="reportOutage('confocal-a', '2026-10-20T10:00:00', '2026-10-20T16:00:00')">Report Confocal A Down (10am-4pm)</button>
-            </div>
-            <div class="control-row">
-                <button onclick="resetDemo()">Reset to Initial State</button>
-            </div>
-            <div class="control-row">
-                <label>User:</label>
+                <label>Acting as (auth token):</label>
                 <select id="userSelect" onchange="changeUser()">
-                    <option value="demo">Demo Mode (Manager)</option>
+                    <option value="tok-manager">Priya ??Manager (tok-manager)</option>
+                    <option value="tok-chen">Dr. Chen ??Researcher A+B (tok-chen)</option>
+                    <option value="tok-wang">Dr. Wang ??Researcher A (tok-wang)</option>
+                    <option value="tok-li">Dr. Li ??Researcher B (tok-li)</option>
                 </select>
             </div>
+            <div class="control-row">
+                <button onclick="resetDemo()">Reset demo data</button>
+            </div>
+            <div class="llm-mode" id="llmMode">identity comes from the token ??never from tool args</div>
         </div>
     </div>
-    
+
     <!-- Confirm Card Overlay -->
     <div class="overlay" id="confirmOverlay"></div>
     <div class="confirm-card hidden" id="confirmCard">
-        <h3>🔒 Confirm Schedule Changes</h3>
-        <p>The AI agent has proposed the following changes. Please review and confirm:</p>
+        <h3>?? Apply this replan?</h3>
+        <div class="src">MCP elicitation/create ??only your click answers this. The LLM cannot confirm for you.</div>
         <div class="confirm-changes" id="confirmChanges"></div>
         <div class="confirm-buttons">
-            <button class="confirm-btn" onclick="confirmPlan(true)">Confirm ✓</button>
-            <button class="cancel-btn" onclick="confirmPlan(false)">Cancel ✗</button>
+            <button class="confirm-btn" id="confirmYes">Confirm ??/button>
+            <button class="cancel-btn" id="confirmNo">Cancel ??/button>
         </div>
     </div>
-    
-    <!-- Loading indicator -->
-    <div class="hidden" id="loading">⏳ Loading...</div>
-    
-    <script>
-        const API_BASE = 'http://localhost:8000';
-        let currentPlanId = null;
-        let scheduleVersion = 0;
-        
-        // Show/hide loading
-        function showLoading(show) {
-            document.getElementById('loading').classList.toggle('hidden', !show);
-        }
-        
-        // Log to dev panel
-        function logMCP(method, status, details = '') {
-            const logs = document.getElementById('mcpLogs');
+
+    <div class="hidden" id="loading">??Working??/div>
+
+    <script type="module">
+        import { createSession, callTool, closeSession } from '/static/mcp-client.bundle.js';
+
+        const DEMO_DATE = '2026-10-20';
+        let client = null;
+        let currentToken = 'tok-manager';
+        let lastSchedule = null;
+        let lastProposals = new Map();
+
+        const $ = (id) => document.getElementById(id);
+        const OUT_SIGN = '\u2192';
+        const IN_SIGN = '\u2190';
+
+        // ---------- logging / narration ----------
+        function logMCP(direction, method, status = '', note = '') {
             const entry = document.createElement('div');
-            entry.className = 'mcp-message';
-            entry.innerHTML = `
-                <span class="mcp-method">${method}</span> 
-                <span class="mcp-status">${status}</span><br>
-                <small>${details}</small>
-            `;
-            logs.prepend(entry);
+            entry.className = 'mcp-message' + (direction === 'out' ? ' out' : '');
+            const sign = direction === 'out' ? OUT_SIGN : IN_SIGN;
+            entry.innerHTML = '<span class="mcp-method">' + sign + ' ' + method + '</span> ' +
+                (status ? '<span class="mcp-status">' + status + '</span>' : '') +
+                (note ? '<br><span class="mcp-note">' + escapeHtml(note) + '</span>' : '');
+            $('mcpLogs').prepend(entry);
         }
-        
-        // Add chat message
         function addMessage(text, type = 'ai') {
-            const messages = document.getElementById('chatMessages');
             const msg = document.createElement('div');
-            msg.className = `message ${type}-message`;
+            msg.className = 'message ' + type + '-message';
             msg.textContent = text;
-            messages.appendChild(msg);
-            messages.scrollTop = messages.scrollHeight;
+            $('chatMessages').appendChild(msg);
+            $('chatMessages').scrollTop = $('chatMessages').scrollHeight;
         }
-        
-        // Load schedule
-        async function loadSchedule() {
-            try {
-                const response = await fetch(`${API_BASE}/mcp/schedule_get?unit_id=lab-a&date=2026-10-20`);
-                const data = await response.json();
-                
-                scheduleVersion = data.schedule_version;
-                renderSchedule(data);
-                logMCP('schedule_get', 'OK', `version=${scheduleVersion}`);
-            } catch (error) {
-                console.error('Error loading schedule:', error);
+        function escapeHtml(sx) {
+            return String(sx == null ? '' : sx).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function showLoading(show) { $('loading').classList.toggle('hidden', !show); }
+
+        // ---------- reason rendering ----------
+        function fmtTime(iso) { return String(iso == null ? '' : iso).replace('T', ' ').substring(11, 16); }
+        function fmtRange(a, b) { return fmtTime(a) + '\u2013' + fmtTime(b); }
+        function reasonText(r) {
+            if (!r) return '';
+            const bits = [];
+            if (r.code) bits.push(r.code);
+            if (r.start && r.end) bits.push('(' + fmtRange(r.start, r.end) + ')');
+            else if (r.until) bits.push('until ' + fmtTime(r.until));
+            else if (r.from && r.to) bits.push('(' + fmtRange(r.from, r.to) + ')');
+            else if (r.opens && r.closes) bits.push('(open ' + r.opens + '\u2013' + r.closes + ')');
+            else if (r.deadline) bits.push('(deadline ' + fmtTime(r.deadline) + ')');
+            else if (r.at_least) bits.push('(needs \u2265' + r.at_least + ')');
+            for (const k of ['equipment_id', 'equipment_name', 'booking_id', 'outage_id', 'field', 'minutes']) {
+                if (r[k] !== undefined) bits.push(k + '=' + r[k]);
             }
+            if (r.message) bits.push(r.message);
+            return bits.join(' ');
         }
-        
-        // Render schedule
+        function reasonsHtml(reasons) {
+            if (!Array.isArray(reasons) || reasons.length === 0) return '';
+            return '<div class="reason-list">\u21b3 ' +
+                reasons.map(r => escapeHtml(reasonText(r))).join('  \u00b7  ') + '</div>';
+        }
+        function reasonsPlain(reasons) {
+            if (!Array.isArray(reasons) || reasons.length === 0) return '';
+            return ' \u21b3 ' + reasons.map(r => reasonText(r)).join('  \u00b7  ');
+        }
+
+        // ---------- schedule rendering ----------
         function renderSchedule(data) {
-            const container = document.getElementById('scheduleContent');
-            
+            $('schedDate').textContent = data.date;
+            $('verBadge').textContent = 'v' + data.schedule_version;
+            $('roleBadge').textContent = data.viewer.name + ' \u00b7 ' + data.viewer.role;
+            lastSchedule = data;
+
+            const c = $('scheduleContent');
             let html = '';
-            
-            // Show active outages
-            if (data.outages && data.outages.length > 0) {
-                data.outages.forEach(outage => {
-                    html += `<div class="outage-banner">⚠️ ${outage.equipment} DOWN until ${outage.end.replace('T', ' ')}</div>`;
-                });
+
+            for (const o of (data.open_outages || [])) {
+                html += '<div class="outage-banner">\u26a0\ufe0f <b>' + escapeHtml(o.equipment_name) +
+                    '</b> down ' + fmtRange(o.start, o.end) +
+                    (o.reason ? ' \u2014 ' + escapeHtml(o.reason) : '') +
+                    ' \u00b7 ' + o.unresolved_booking_ids.length + ' unresolved</div>';
             }
-            
-            // Create columns for each equipment
-            data.equipment.forEach(equip => {
-                html += `<div class="equipment-column">`;
-                html += `<div class="equipment-header">${equip.name}<br><small>${equip.available_from}-${equip.available_until}</small></div>`;
-                
-                // Group bookings by time
-                const bookingsByTime = {};
-                if (data.bookings) {
-                    data.bookings.forEach(b => {
-                        if (b.equipment === equip.id) {
-                            const key = b.start.split('T')[1].substring(0, 5);
-                            bookingsByTime[key] = b;
-                        }
-                    });
+            for (const p of (data.pending_plans || [])) {
+                html += '<div class="plan-banner">\ud83d\udcdd Pending plan <code>' + escapeHtml(p.plan_id) +
+                    '</code> for outage ' + escapeHtml(p.outage_id) + ' \u2014 ' +
+                    p.change_count + ' move(s), ' + p.unresolved_count + ' unresolved \u00b7 based on v' +
+                    p.based_on_version + '</div>';
+            }
+            if ((data.open_outages || []).length === 0 && (data.pending_plans || []).length === 0) {
+                html += '<div class="ok-note">\u2705 No open outages \u2014 all bookings in place.</div>';
+                if (data.message) html += '<div class="reason-note">' + escapeHtml(data.message) + '</div>';
+            }
+
+            html += '<div class="equipment-grid">';
+            for (const eq of (data.equipment || [])) {
+                const outagesForEq = (data.open_outages || []).filter(o => o.equipment === eq.id);
+                html += '<div class="equipment-column">';
+                html += '<div class="equipment-header">' + escapeHtml(eq.name) +
+                    (outagesForEq.length ? ' \u26a0\ufe0f' : '') + '</div>';
+                html += '<div class="equipment-window">Available ' + eq.available_start + '\u2013' +
+                    eq.available_end + ' \u00b7 buffer ' + eq.buffer_minutes + 'min</div>';
+
+                for (const b of (data.bookings || []).filter(b => b.equipment === eq.id)) {
+                    const masked = b.masked === true;
+                    let cls = 'booking';
+                    if (masked) cls += ' masked';
+                    else if (b.status === 'blocked') cls += ' blocked';
+                    else if (b.status === 'unresolved') cls += ' unresolved';
+
+                    const who = masked ? 'Occupied' : escapeHtml(b.user);
+                    const owner = (!masked && b.user_id) ? ' <small>(' + escapeHtml(b.user_id) + ')</small>' : '';
+                    const dl = (!masked && b.deadline) ? '<div class="deadline">\u23f0 deadline ' + fmtTime(b.deadline) + '</div>' : '';
+                    const moved = (!masked && b.affected_by_outage && b.status === 'confirmed')
+                        ? '<span class="moved-tag">moved for ' + escapeHtml(b.affected_by_outage) + '</span>' : '';
+                    const statusTag = (!masked && b.status && b.status !== 'confirmed')
+                        ? '<span class="moved-tag" style="color:#b03a2e">[' + escapeHtml(b.status) + ']</span>' : '';
+
+                    html += '<div class="' + cls + '">' +
+                        '<div><span class="b-time">' + fmtRange(b.start, b.end) + '</span> \u00b7 <span class="b-user">' +
+                        who + '</span>' + owner + ' ' + statusTag + '</div>' +
+                        dl + moved + reasonsHtml(b.reasons) + '</div>';
                 }
-                
-                // Show timeline bars
-                for (let hour = 9; hour <= 17; hour++) {
-                    const timeKey = `${hour.toString().padStart(2, '0')}:00`;
-                    const booking = bookingsByTime[timeKey];
-                    
-                    if (booking) {
-                        const statusClass = booking.status || 'confirmed';
-                        const userInitials = booking.user ? booking.user.substring(0, 2).toUpperCase() : '?';
-                        
-                        let statusText = '';
-                        if (statusClass === 'blocked') statusText = ' ⛔ BLOCKED';
-                        if (statusClass === 'unresolved') statusText = ' ⚠️ UNRESOLVED';
-                        
-                        html += `<div class="time-slot booking ${statusClass}">
-                            <strong>${booking.start.replace('T', ' ').substring(11, 16)} - ${booking.end.replace('T', ' ').substring(11, 16)}</strong><br>
-                            👤 ${booking.user}${statusText}
-                        </div>`;
-                    } else {
-                        html += `<div class="time-slot" style="opacity: 0.3;">${timeKey} - ${parseInt(hour)+1}:00</div>`;
-                    }
+                html += '</div>';
+            }
+            html += '</div>';
+
+            const isManager = data.viewer.role === 'manager';
+            html += '<div class="action-row">';
+            if (isManager) {
+                html += '<button onclick="window.reportOutageFlow()">\ud83d\udea8 Report outage (Confocal A 10:00\u201316:00)</button>';
+                for (const o of (data.open_outages || [])) {
+                    html += '<button class="amber" onclick="window.proposeFlow(\'' + escapeHtml(o.id) +
+                        '\')">\ud83e\udde0 Propose replan for ' + escapeHtml(o.id) + '</button>';
                 }
-                
-                html += `</div>`;
+                for (const p of (data.pending_plans || [])) {
+                    html += '<button class="green" onclick="window.applyFlow(\'' + escapeHtml(p.plan_id) +
+                        '\', ' + data.schedule_version + ')">\ud83d\udd12 Apply ' + escapeHtml(p.plan_id) + '</button>';
+                }
+            }
+            html += '<button class="gray" onclick="window.loadSchedule()">\u21bb Refresh</button>';
+            html += '</div>';
+
+            c.innerHTML = html;
+        }
+
+        // ---------- session ----------
+        async function connect(token) {
+            if (client) await closeSession(client);
+            logMCP('out', 'initialize', '', 'token ' + token.slice(4) + '\u2026 (identity from header)');
+            client = await createSession(token, {
+                onLog: (e) => logMCP(e.direction || 'in', e.method || ('event: ' + JSON.stringify(e).slice(0, 120)), '', e.note || ''),
+                onElicit: showConfirmCard,
             });
-            
-            container.innerHTML = html;
+            logMCP('in', 'initialize', 'OK', 'protocol 2025-11-25 \u00b7 elicitation capability declared');
         }
-        
-        // Send user message
-        async function sendMessage() {
-            const input = document.getElementById('userInput');
-            const message = input.value.trim();
-            if (!message) return;
-            
-            addMessage(message, 'user');
-            input.value = '';
-            
-            // Simple demo responses
-            setTimeout(() => {
-                if (message.toLowerCase().includes('down') || message.toLowerCase().includes('broken') || message.toLowerCase().includes('outage')) {
-                    addMessage("I can help with that. Which equipment is down and when?", 'ai');
-                } else if (message.toLowerCase().includes('confirm')) {
-                    if (currentPlanId) {
-                        applyPlan();
-                    } else {
-                        addMessage("No plan ready for confirmation.", 'ai');
-                    }
-                } else {
-                    addMessage("Thanks for the message. Let me check the schedule...", 'ai');
-                }
-            }, 500);
+
+        async function loadSchedule() {
+            if (!client) return;
+            const data = await callTool(client, 'schedule_get', { unit_id: 'lab-a', date: DEMO_DATE }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+            if (data.status === 'ok') renderSchedule(data);
+            else if (data.status === 'forbidden') addMessage('\u26d4 You do not have access to this schedule.', 'outage-message');
+            return data;
         }
-        
-        // Report outage
-        let lastOutageId = null;
-        
-        async function reportOutage(equipId, start, end) {
+
+        async function changeUser() {
+            const token = $('userSelect').value;
+            if (token === currentToken && client) return;
+            currentToken = token;
+            addMessage('\ud83d\udd11 Now acting as ' + $('userSelect').selectedOptions[0].textContent.split(' (')[0] +
+                ' (header Bearer ' + token + ')', 'system');
+            await connect(token);
+            await loadSchedule();
+        }
+
+        // ---------- flows ----------
+        async function reportOutageFlow() {
             showLoading(true);
-            
             try {
-                const response = await fetch(`${API_BASE}/mcp/equipment_report_outage`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        equipment_id: equipId,
-                        start: start,
-                        end: end,
-                        reason: 'Reported via demo interface'
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.outage_id && data.affected_bookings && data.affected_bookings.length > 0) {
-                    lastOutageId = data.outage_id;
-                    scheduleVersion = data.schedule_version;
-                    
-                    addMessage(`Outage reported! ${data.affected_bookings.length} booking(s) affected: ${data.affected_bookings.map(b => b.user).join(', ')}`, 'system');
-                    
-                    // Generate replan after short delay
-                    setTimeout(() => proposeReplan(), 1000);
+                const data = await callTool(client, 'equipment_report_outage', {
+                    equipment_id: 'confocal-a',
+                    start: DEMO_DATE + 'T10:00:00+01:00',
+                    end: DEMO_DATE + 'T16:00:00+01:00',
+                    reason: 'Laser failure \u2014 reported by facility',
+                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                handleOutageResult(data);
+            } finally { showLoading(false); }
+        }
+
+        function handleOutageResult(data) {
+            switch (data.status) {
+                case 'recorded': {
+                    const n = (data.affected_bookings || []).length;
+                    addMessage('\ud83d\udea8 Outage recorded: ' + (data.equipment || {}).name + ' \u2014 ' + n +
+                        ' booking(s) affected, ' + data.unaffected_count + ' untouched. Schedule is now v' +
+                        data.schedule_version + '. Proposing a replan...', 'outage-message');
+                    logMCP('in', 'report_outage', 'recorded', 'outage ' + data.outage_id + ', affected ' + n);
+                    proposeFlow(data.outage_id);
+                    break;
                 }
-                
-                logMCP('equipment_report_outage', 'OK', `${data.affected_bookings.length} affected`);
-                
-                // Reload schedule
-                setTimeout(loadSchedule, 1000);
-                
-            } catch (error) {
-                console.error('Error:', error);
-                addMessage('Error reporting outage', 'system');
+                case 'duplicate_outage':
+                    addMessage('\u2139\ufe0f This outage was already recorded (' + data.outage_id + '). Nothing changed.', 'system');
+                    loadSchedule();
+                    break;
+                case 'invalid_argument':
+                    addMessage('\u26a0\ufe0f ' + (data.message || 'Invalid argument.'), 'outage-message');
+                    break;
+                case 'forbidden':
+                    addMessage('\u26d4 Only the manager can record outages.', 'outage-message');
+                    break;
+                default:
+                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    loadSchedule();
+            }
+        }
+
+        async function proposeFlow(outageId) {
+            showLoading(true);
+            try {
+                const data = await callTool(client, 'schedule_propose_replan', {
+                    outage_id: outageId,
+                    schedule_version: lastSchedule.schedule_version,
+                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                handleProposeResult(data);
+            } finally { showLoading(false); }
+        }
+
+        function handleProposeResult(data) {
+            switch (data.status) {
+                case 'proposed': {
+                    lastProposals.set(data.outage_id, data);
+                    const s = data.summary || {};
+                    addMessage('\ud83e\udde0 Replan proposed (' + data.plan_id + '): ' +
+                        (s.rescheduled != null ? s.rescheduled : (data.changes || []).length) + ' move(s), ' +
+                        (s.unresolved != null ? s.unresolved : (data.unresolved || []).length) +
+                        ' cannot be fully fixed. Review below, then Apply.', 'ai');
+                    for (const ch of (data.changes || [])) {
+                        addMessage(OUT_SIGN + ' ' + ch.user + ': ' + (ch.original_equipment_name || '') + ' ' +
+                            fmtRange(ch.original_start, ch.original_end) + ' => ' +
+                            (ch.new_equipment_name || '') + ' ' + fmtRange(ch.new_start, ch.new_end) +
+                            reasonsPlain(ch.reasons), 'system');
+                    }
+                    for (const u of (data.unresolved || [])) {
+                        const ep = (u.earliest_possible || []).filter(e => e.status !== 'no_permission');
+                        const epTxt = ep.map(e => e.equipment_name + ': ' +
+                            (e.status === 'available_after_deadline'
+                                ? 'earliest ' + fmtRange(e.earliest_start, e.earliest_finish) + ' (misses deadline)'
+                                : e.status === 'no_slot_today' ? 'no free slot today'
+                                : e.status === 'unavailable' ? 'no access at all' : e.status)).join('  \u00b7  ');
+                        addMessage('\u2717 ' + u.user + ': kept on ' + (u.equipment_name || '') + ' ' +
+                            fmtRange(u.original_start, u.original_end) + reasonsPlain(u.reasons) +
+                            (epTxt ? '\n\ud83d\udcac earliest alternatives \u2014 ' + epTxt : ''), 'outage-message');
+                    }
+                    const c = $('scheduleContent');
+                    const row = document.createElement('div');
+                    row.className = 'action-row';
+                    row.innerHTML = '<button class="green" onclick="window.applyFlow(\'' + escapeHtml(data.plan_id) +
+                        '\', ' + data.schedule_version + ')">\ud83d\udd12 Apply ' + escapeHtml(data.plan_id) + '</button>';
+                    c.appendChild(row);
+                    break;
+                }
+                case 'plan_stale':
+                    addMessage('\ud83d\udd52 Version moved (now v' + data.schedule_version + ') \u2014 plan must be recomputed. Re-proposing...', 'system');
+                    loadSchedule().then(() => proposeFlow(data.outage_id));
+                    break;
+                case 'outage_resolved':
+                    addMessage('\u2705 This outage has no unresolved bookings anymore.', 'system');
+                    loadSchedule();
+                    break;
+                case 'unknown_outage':
+                    addMessage('\u26a0\ufe0f Unknown outage id.', 'outage-message');
+                    break;
+                default:
+                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    loadSchedule();
+            }
+        }
+
+        async function applyFlow(planId, version) {
+            showLoading(true);
+            try {
+                const data = await callTool(client, 'schedule_apply_replan', {
+                    plan_id: planId,
+                    schedule_version: version,
+                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                handleApplyResult(data);
+            } catch (err) {
+                addMessage('\u26a0\ufe0f Apply failed: ' + err.message, 'outage-message');
             } finally {
+                hideConfirmCard();
                 showLoading(false);
             }
         }
-        
-        // Propose replan
-        async function proposeReplan() {
-            if (!currentPlanId && lastOutageId) {
-                try {
-                    const response = await fetch(`${API_BASE}/mcp/schedule_propose_replan`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            outage_id: lastOutageId,
-                            schedule_version: scheduleVersion
-                        })
+
+        function handleApplyResult(data) {
+            switch (data.status) {
+                case 'applied': {
+                    const cb = data.confirmed_by || {};
+                    addMessage('\u2705 Replan applied (v' + data.new_version + '), confirmed by ' +
+                        (cb.name || cb.user_id) + ' at ' + String(data.confirmed_at || '').substring(11, 19) + '.', 'ai');
+                    for (const ch of (data.applied_changes || [])) {
+                        addMessage('\u2714 ' + ch.user + ': ' + fmtRange(ch.from_start, ch.from_end) + ' => ' +
+                            String(ch.new_equipment).replace('confocal-', 'Confocal ') + ' ' +
+                            fmtRange(ch.to_start, ch.to_end) + reasonsPlain(ch.reasons), 'system');
+                    }
+                    for (const u of (data.unresolved || [])) {
+                        addMessage('\u2717 ' + u.user + ' stays on ' + (u.equipment_name || '') + ' ' +
+                            fmtRange(u.original_start, u.original_end) + ' \u2014 needs attention.', 'outage-message');
+                    }
+                    break;
+                }
+                case 'not_confirmed':
+                    addMessage('\ud83d\udeab You declined (or cancelled) the confirmation \u2014 nothing was applied. Schedule unchanged.', 'system');
+                    break;
+                case 'already_applied':
+                    addMessage('\u2139\ufe0f This plan was already applied.', 'system');
+                    break;
+                case 'plan_stale': {
+                    const v = data.schedule_version != null ? data.schedule_version : (lastSchedule && lastSchedule.schedule_version);
+                    addMessage('\ud83d\udd52 Version moved in the meantime (now v' + v + ') \u2014 nothing applied. Refreshing and re-proposing...', 'system');
+                    loadSchedule().then(() => {
+                        const open = ((lastSchedule || {}).open_outages || [])[0];
+                        if (open) proposeFlow(open.id);
                     });
-                    
-                    const data = await response.json();
-                    
-                    if (data.plan_id) {
-                        currentPlanId = data.plan_id;
-                        addMessage(`Proposed ${data.changes.length} change(s). ${data.unresolved.length} unresolved. Ready for confirmation?`, 'ai');
-                        
-                        // Prepare confirmation card
-                        prepareConfirmation(data);
-                        
-                        logMCP('schedule_propose_replan', 'PROPOSED', `${data.changes.length} changes`);
-                    } else if (data.error) {
-                        addMessage(`Error: ${data.error}`, 'system');
-                    }
-                    
-                } catch (error) {
-                    console.error('Error:', error);
-                    addMessage('Error proposing replan', 'system');
+                    break;
                 }
+                case 'unknown_plan':
+                    addMessage('\u26a0\ufe0f Unknown plan id.', 'outage-message');
+                    break;
+                default:
+                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
             }
-        }
-        
-        // Prepare confirmation card
-        function prepareConfirmation(planData) {
-            const changesContainer = document.getElementById('confirmChanges');
-            changesContainer.innerHTML = '';
-            
-            if (planData.changes && planData.changes.length > 0) {
-                planData.changes.forEach(change => {
-                    changesContainer.innerHTML += `
-                        <div class="confirm-item">
-                            <strong>${change.user_name}</strong>:<br>
-                            From: ${change.original_equip} ${change.original_start.substring(11, 16)} - ${change.original_end.substring(11, 16)}<br>
-                            To:   ${change.new_equip} ${change.new_start.substring(11, 16)} - ${change.new_end.substring(11, 16)}
-                        </div>
-                    `;
-                });
-            }
-            
-            if (planData.unresolved && planData.unresolved.length > 0) {
-                changesContainer.innerHTML += `<div style="color: #e74c3c; margin: 10px 0;"><strong>⚠️ ${planData.unresolved.length} booking(s) could not be rescheduled automatically</strong></div>`;
-            }
-            
-            // Show card
-            document.getElementById('confirmOverlay').style.display = 'block';
-            document.getElementById('confirmCard').classList.remove('hidden');
-        }
-        
-        // Confirm or cancel plan
-        async function confirmPlan(confirmed) {
-            document.getElementById('confirmOverlay').style.display = 'none';
-            document.getElementById('confirmCard').classList.add('hidden');
-            
-            if (!confirmed) {
-                addMessage('Plan cancelled by user.', 'system');
-                currentPlanId = null;
-                return;
-            }
-            
-            await applyPlan();
-        }
-        
-        // Apply plan
-        async function applyPlan() {
-            showLoading(true);
-            
-            try {
-                const response = await fetch(`${API_BASE}/mcp/schedule_apply_replan`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        plan_id: currentPlanId,
-                        schedule_version: scheduleVersion
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.status === 'applied') {
-                    addMessage(`✅ Plan applied successfully! ${data.applied_changes.length} change(s) made.`, 'system');
-                    currentPlanId = null;
-                    
-                    // Reload schedule
-                    setTimeout(loadSchedule, 1000);
-                    
-                    logMCP('schedule_apply_replan', 'APPLIED', `${data.applied_changes.length} changes`);
-                } else {
-                    addMessage(`❌ Failed: ${data.message}`, 'system');
-                }
-                
-            } catch (error) {
-                console.error('Error:', error);
-                addMessage('Error applying plan', 'system');
-            } finally {
-                showLoading(false);
-            }
-        }
-        
-        // Reset demo
-        async function resetDemo() {
-            if (!confirm('Reset all changes and return to initial state?')) return;
-            
-            try {
-                const response = await fetch(`${API_BASE}/mcp/reset_to_seed_data`);
-                const data = await response.json();
-                
-                currentPlanId = null;
-                await loadSchedule();
-                addMessage('✅ Demo reset to initial state', 'system');
-                logMCP('reset_to_seed_data', 'OK', '');
-                
-            } catch (error) {
-                console.error('Error:', error);
-            }
-        }
-        
-        // Change user
-        function changeUser() {
-            const user = document.getElementById('userSelect').value;
-            addMessage(`Switched to user: ${user}`, 'system');
-            logMCP('user_change', user, '');
-        }
-        
-        // Initialize
-        window.addEventListener('DOMContentLoaded', () => {
             loadSchedule();
+        }
+
+        async function resetDemo() {
+            showLoading(true);
+            try {
+                const data = await callTool(client, 'reset_demo_data', {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                if (data.status === 'reset') {
+                    addMessage('\u267b\ufe0f Demo data reset to seed state (v1).', 'system');
+                } else if (data.status === 'forbidden') {
+                    addMessage('\u26d4 Only the manager can reset the demo.', 'outage-message');
+                }
+                lastProposals.clear();
+                await loadSchedule();
+            } finally { showLoading(false); }
+        }
+
+        // ---------- elicitation confirm card ----------
+        let pendingElicit = null;
+        function showConfirmCard(req) {
+            return new Promise((resolve) => {
+                pendingElicit = { resolve };
+                const cc = $('confirmCard');
+                const box = $('confirmChanges');
+                let html = '';
+                const prop = Array.from(lastProposals.values()).pop();
+                if (prop) {
+                    for (const ch of (prop.changes || [])) {
+                        html += '<div class="confirm-item">\ud83d\udd04 <b>' + escapeHtml(ch.user) + '</b>: ' +
+                            escapeHtml(ch.original_equipment_name || '') + ' ' +
+                            fmtRange(ch.original_start, ch.original_end) + ' => ' +
+                            escapeHtml(ch.new_equipment_name || '') + ' ' +
+                            fmtRange(ch.new_start, ch.new_end) +
+                            (ch.reasons && ch.reasons.length
+                                ? '<div class="why">\u21b3 ' + ch.reasons.map(r => escapeHtml(reasonText(r))).join(' \u00b7 ') + '</div>'
+                                : '') + '</div>';
+                    }
+                    for (const u of (prop.unresolved || [])) {
+                        html += '<div class="confirm-item">\u26a0\ufe0f <b>' + escapeHtml(u.user) + '</b>: stays on ' +
+                            escapeHtml(u.equipment_name || '') + ' ' + fmtRange(u.original_start, u.original_end) +
+                            ' (unresolved)</div>';
+                    }
+                } else {
+                    html = '<div class="confirm-item">' + escapeHtml(req.message) + '</div>';
+                }
+                box.innerHTML = html;
+                $('confirmOverlay').style.display = 'block';
+                cc.classList.remove('hidden');
+                $('confirmYes').onclick = () => finish(true);
+                $('confirmNo').onclick = () => finish(false);
+                function finish(v) {
+                    $('confirmOverlay').style.display = 'none';
+                    cc.classList.add('hidden');
+                    pendingElicit = null;
+                    resolve({ confirmed: v });
+                }
+            });
+        }
+        function hideConfirmCard() {
+            if (pendingElicit) {
+                pendingElicit.resolve({ confirmed: false });
+                pendingElicit = null;
+            }
+            $('confirmOverlay').style.display = 'none';
+            $('confirmCard').classList.add('hidden');
+        }
+
+        // ---------- free-text quick parse ----------
+        function sendMessage() {
+            const input = $('userInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            addMessage(text, 'system');
+            const t = text.toLowerCase();
+            const mA = /\bconfocal[- ]?a\b/.test(t);
+            const mB = /\bconfocal[- ]?b\b/.test(t);
+            const until = t.match(/until\s+(\d{1,2})(?::(\d{2}))?/);
+            const from = t.match(/from\s+(\d{1,2})(?::(\d{2}))?/);
+            if ((mA || mB) && (until || from)) {
+                const eq = mB ? 'confocal-b' : 'confocal-a';
+                const startH = from ? parseInt(from[1], 10) : 10;
+                const startM = from && from[2] ? from[2] : '00';
+                const endH = until ? parseInt(until[1], 10) : 16;
+                const endM = until && until[2] ? until[2] : '00';
+                if (currentToken !== 'tok-manager') {
+                    addMessage('\u26d4 Only the manager (Priya) can record outages. Switch identity on the right.', 'outage-message');
+                    return;
+                }
+                addMessage('Understood \u2014 reporting ' + (eq === 'confocal-a' ? 'Confocal A' : 'Confocal B') +
+                    ' down from ' + startH + ':' + startM + ' to ' + endH + ':' + endM + ' today.', 'ai');
+                doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00+01:00',
+                    DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00+01:00');
+            } else if (t.indexOf('apply') >= 0) {
+                const pp = lastSchedule && (lastSchedule.pending_plans || [])[0];
+                if (pp) applyFlow(pp.plan_id, lastSchedule.schedule_version);
+                else addMessage('There is no pending plan to apply right now.', 'ai');
+            } else if (t.indexOf('reset') >= 0) {
+                resetDemo();
+            } else {
+                addMessage('Try: "confocal A is down from 10 to 16" \u00b7 "apply" \u00b7 "reset" \u2014 or use the buttons in the schedule panel.', 'ai');
+            }
+        }
+
+        async function doReport(eq, start, end) {
+            showLoading(true);
+            try {
+                const data = await callTool(client, 'equipment_report_outage', {
+                    equipment_id: eq, start, end, reason: 'Reported via chat',
+                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                handleOutageResult(data);
+            } finally { showLoading(false); }
+        }
+
+        window.reportOutageFlow = reportOutageFlow;
+        window.proposeFlow = proposeFlow;
+        window.applyFlow = applyFlow;
+        window.resetDemo = resetDemo;
+        window.loadSchedule = loadSchedule;
+        window.sendMessage = sendMessage;
+        window.changeUser = changeUser;
+        window.showConfirmCard = showConfirmCard;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await connect(currentToken);
+            await loadSchedule();
         });
     </script>
 </body>

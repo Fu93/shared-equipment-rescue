@@ -1,0 +1,19 @@
+﻿{
+    "name":  "web",
+    "version":  "1.0.0",
+    "description":  "",
+    "main":  "index.js",
+    "scripts":  {
+                    "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1"
+                },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "^1.32.1",
+                         "esbuild":  "^0.28.2"
+                     },
+    "type":  "module"
+}
