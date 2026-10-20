@@ -1,3 +1,9 @@
+## 2026-10-20 20:15 - FUNCTION FREEZE CHECKPOINT (20:00 London passed) - ALL GREEN
+- Freeze-time verification against current working tree (incl. uncommitted local-font @font-face additions by user/Partner):
+  pytest **51** / final_e2e CLI **19/19** / browser E2E **20/20**. Static + font files serve 200 via app.py (cd-independent paths proven).
+- Commit chain up to 76a27a2 (polish round 4) all passed gates at commit time; working tree now carries only a local-font offline-safety edit (index.html @font-face + web/static/fonts/*.woff2, ~205KB) - verified no breakage; safe to commit as-is.
+- Remaining human items: H1 record Demo video (<3:00, script in SUBMISSION_CHECKLIST section 2 with _shot_1..6.png), H2 Devpost submission (track Alexa+ / AWS Builder badge). Deadline 2026-10-23.
+
 ## 2026-10-20 14:21 - Lead polish round 4 (UI memory bounds + audit probe): deep8 6/6
 - **web/static/index.html**: dev console capped at 200 entries, chat at 150 (oldest dropped) - long demo sessions / recording takes can no longer bloat the DOM.
 - **README.md**: quickstart now leads with `python -X utf8 tools/dev_server2.py` (one-command fresh-DB boot); persistent `-m mcp_server` noted as alternative.

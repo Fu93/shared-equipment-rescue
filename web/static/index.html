@@ -5,213 +5,250 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shared Equipment Rescue — MCP Demo</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-            background: #f4f6f8;
+        /* ---- local fonts (offline-safe) ---- */
+        @font-face {
+            font-family: 'Space Grotesk';
+            src: url('/static/fonts/SpaceGrotesk-300-700.woff2') format('woff2');
+            font-weight: 300 700; font-style: normal; font-display: swap;
+        }
+        @font-face {
+            font-family: 'IBM Plex Sans';
+            src: url('/static/fonts/IBMPlexSans-400.woff2') format('woff2');
+            font-weight: 400; font-style: normal; font-display: swap;
+        }
+        @font-face {
+            font-family: 'IBM Plex Sans';
+            src: url('/static/fonts/IBMPlexSans-400-italic.woff2') format('woff2');
+            font-weight: 400; font-style: italic; font-display: swap;
+        }
+        @font-face {
+            font-family: 'IBM Plex Sans';
+            src: url('/static/fonts/IBMPlexSans-600.woff2') format('woff2');
+            font-weight: 600; font-style: normal; font-display: swap;
         }
 
-        /* Left panel: narration */
+        /* ============ Shared Equipment Rescue — instrument-plaque design language ============ */
+        :root {
+            --base:   #1C1E1D;   /* anodised instrument shell */
+            --paper:  #FEF9F3;   /* lab notebook paper */
+            --ink:    #23282A;
+            --micro:  #2E7D6B;   /* confocal green — the ONE accent */
+            --alert:  #C4482F;   /* cement alarm red */
+            --hold:   #B9862F;   /* amber “awaiting decision” */
+            --rule:   #D9D2C7;   /* hairline on paper */
+            --shell:  #262928;   /* panel bg on dark */
+            --shell-hi: #303433;
+            --paper-dim: #F1EAE0;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { font-size: 16px; }
+        body {
+            font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+            display: flex; height: 100vh; overflow: hidden;
+            background: var(--base); color: var(--ink);
+        }
+
+        h1, h2, h3 { font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif; }
+
+        /* ---------- left: lab notebook ---------- */
         .chat-panel {
-            width: 320px;
-            background: white;
-            border-right: 1px solid #dfe4e8;
-            display: flex;
-            flex-direction: column;
+            width: 320px; background: var(--paper);
+            border-right: 1px solid var(--rule);
+            display: flex; flex-direction: column;
         }
         .chat-header {
-            background: #14532d;
-            color: white;
-            padding: 14px 16px;
-            font-weight: 600;
+            padding: 18px 18px 14px;
+            border-bottom: 2px solid var(--base);
         }
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 14px;
+        .chat-header .kicker {
+            font-family: 'Space Grotesk'; font-size: 10px; letter-spacing: .14em;
+            text-transform: uppercase; color: var(--micro); margin-bottom: 4px;
         }
-        .message { margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
-        .ai-message { background: #eef6ee; border-left: 3px solid #27ae60; }
-        .system-message { background: #f0f2f5; color: #566; }
-        .outage-message { background: #fdecea; border-left: 3px solid #e74c3c; }
+        .chat-header h1 { font-size: 19px; font-weight: 600; color: var(--base); line-height: 1.2; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 14px; }
+        .message {
+            margin-bottom: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5;
+            background: transparent; border-left: 2px solid var(--rule);
+        }
+        .ai-message { border-left-color: var(--micro); }
+        .system-message { border-left-color: var(--rule); color: #55595B; }
+        .outage-message { border-left-color: var(--alert); background: rgba(196,72,47,.06); }
         .reason-note { font-size: 12px; color: #777; font-style: italic; margin-top: 4px; }
 
-        .chat-input {
-            display: flex; padding: 10px; border-top: 1px solid #e5e5e5;
-        }
+        .chat-input { display: flex; padding: 10px; border-top: 1px solid var(--rule); }
         .chat-input input {
-            flex: 1; padding: 9px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;
+            flex: 1; padding: 9px; border: 1px solid var(--rule); border-radius: 0; font-size: 13px;
+            background: #fff; font-family: inherit; color: var(--ink);
         }
+        .chat-input input:focus-visible { outline: 2px solid var(--micro); outline-offset: 1px; }
+        .chat-input input::placeholder { color: #A39C8E; }
         .chat-input button {
-            margin-left: 8px; padding: 9px 14px; background: #14532d; color: white;
-            border: none; border-radius: 4px; cursor: pointer;
+            margin-left: 8px; padding: 9px 16px; background: var(--base); color: var(--paper);
+            border: none; cursor: pointer; font-family: 'Space Grotesk'; font-size: 13px;
+            letter-spacing: .04em; text-transform: uppercase;
+        }
+        .chat-input button:hover { background: var(--micro); }
+        .chat-input button:focus-visible,
+        .action-row button:focus-visible,
+        .confirm-buttons button:focus-visible,
+        .control-row button:focus-visible,
+        .control-row select:focus-visible,
+        #confirmYes:focus-visible, #confirmNo:focus-visible {
+            outline: 2px solid var(--micro); outline-offset: 2px;
         }
 
-        /* Middle panel: schedule */
-        .schedule-panel {
-            flex: 1;
-            overflow-y: auto;
-            padding: 18px 22px;
-        }
+        /* ---------- centre: schedule board ---------- */
+        .schedule-panel { flex: 1; overflow-y: auto; background: var(--paper); padding: 18px 22px 40px; }
         .schedule-bar {
-            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-            margin-bottom: 14px;
+            display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+            border-bottom: 2px solid var(--base); padding-bottom: 12px; margin-bottom: 16px;
         }
-        .schedule-bar h2 { font-size: 18px; color: #1a2a3a; margin-right: auto; }
+        .schedule-bar h2 { font-size: 22px; font-weight: 600; color: var(--base); margin-right: auto; letter-spacing: -.01em; }
         .badge {
-            display: inline-block; padding: 3px 10px; border-radius: 12px;
-            font-size: 12px; background: #e2e8f0; color: #334;
+            font-family: 'Space Grotesk'; font-size: 11px; padding: 3px 10px;
+            border: 1px solid var(--base); color: var(--ink); letter-spacing: .06em;
         }
-        .badge.v { background: #dbeafe; color: #1d4ed8; }
-        .badge.role { background: #fef3c7; color: #92400e; }
+        .badge.v { background: var(--micro); color: #fff; border-color: var(--micro); }
+        .badge.role { background: transparent; border-color: var(--hold); color: var(--hold); }
 
         .outage-banner {
-            background: #e74c3c; color: white; padding: 9px 14px;
-            border-radius: 5px; margin: 8px 0; font-size: 13px;
+            background: var(--alert); color: #fff; padding: 10px 14px; margin: 8px 0;
+            font-size: 13px; border-left: 4px solid #8f3018;
         }
         .plan-banner {
-            background: #f39c12; color: white; padding: 9px 14px;
-            border-radius: 5px; margin: 8px 0; font-size: 13px;
+            background: var(--hold); color: #fff; padding: 10px 14px; margin: 8px 0;
+            font-size: 13px; border-left: 4px solid #8a6420;
         }
         .ok-note {
-            background: #e8f6ef; color: #14643a; padding: 8px 12px;
-            border-radius: 5px; margin: 8px 0; font-size: 13px;
+            background: rgba(46,125,107,.08); color: var(--micro); padding: 10px 12px;
+            margin: 8px 0; font-size: 13px; border-left: 4px solid var(--micro);
         }
 
-        .equipment-grid { display: flex; gap: 14px; margin-top: 10px; }
+        .equipment-grid { display: flex; gap: 14px; margin-top: 12px; }
         .equipment-column {
-            flex: 1; background: white; border: 1px solid #dfe4e8; border-radius: 8px;
-            padding: 12px; min-height: 300px;
+            flex: 1; min-height: 300px; background: #fff;
+            border: 1px solid var(--base); border-radius: 0; padding: 14px;
         }
-        .equipment-header { font-weight: 600; font-size: 14px; color: #1a2a3a; margin-bottom: 4px; }
-        .equipment-window { font-size: 11px; color: #889; margin-bottom: 10px; }
+        .equipment-header {
+            font-family: 'Space Grotesk'; font-weight: 600; font-size: 15px;
+            text-transform: uppercase; letter-spacing: .08em; color: var(--base);
+            border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin-bottom: 10px;
+        }
+        .equipment-window { font-size: 11px; color: #889; margin-bottom: 12px; }
 
         .booking {
-            border: 1px solid #e2e8f0; border-left: 3px solid #2980b9;
-            border-radius: 5px; padding: 7px 9px; margin-bottom: 7px; font-size: 12px;
-            background: #f8fafc;
+            border: 1px solid var(--rule); border-left: 3px solid var(--micro);
+            padding: 7px 9px; margin-bottom: 7px; font-size: 12px; background: var(--paper);
         }
-        .booking .b-time { font-weight: 600; color: #2c3e50; }
+        .booking .b-time { font-weight: 600; color: var(--base); font-variant-numeric: tabular-nums; }
         .booking .b-user { color: #556; }
-        .booking.blocked { border-left-color: #e74c3c; background: #fdecea; }
-        .booking.unresolved { border-left-color: #f39c12; background: #fef5e7; }
-        .booking.masked { border-left-color: #95a5a6; background: #f4f4f4; color: #667; }
+        .booking.blocked { border-left-color: var(--alert); background: rgba(196,72,47,.08); }
+        .booking.unresolved { border-left-color: var(--hold); background: rgba(185,134,47,.10); }
+        .booking.masked { border-left-color: #B8B2A6; background: var(--paper-dim); color: #789; }
         .booking.deadline { font-size: 10.5px; color: #b03a2e; }
-        .booking .moved-tag { color: #1d4ed8; font-size: 10.5px; }
+        .booking .moved-tag { color: var(--micro); font-size: 10.5px; }
 
         .reason-list { margin-top: 3px; font-size: 11px; color: #8a6d3b; }
 
-        .action-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .action-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
         .action-row button {
-            padding: 8px 14px; border: none; border-radius: 5px; cursor: pointer;
-            font-size: 13px; background: #0e639c; color: white;
+            padding: 9px 16px; border: 1px solid var(--base); border-radius: 0; cursor: pointer;
+            font-family: 'Space Grotesk'; font-size: 13px; letter-spacing: .03em;
+            background: var(--base); color: var(--paper);
         }
-        .action-row button.amber { background: #d68910; }
-        .action-row button.green { background: #1e8449; }
-        .action-row button.gray { background: #7f8c8d; }
-        .action-row button:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .action-row button.amber { background: var(--hold); border-color: var(--hold); }
+        .action-row button.green { background: var(--micro); border-color: var(--micro); }
+        .action-row button.gray { background: transparent; color: var(--ink); }
+        .action-row button:disabled { background: #CFC8BC; border-color: #CFC8BC; color: #888; cursor: not-allowed; }
+        .action-row button:not(:disabled):hover { filter: brightness(1.15); }
 
-        /* Right panel: dev console */
+        /* ---------- right: protocol console ---------- */
         .dev-panel {
-            width: 330px; background: #1e1e1e; color: #d4d4d4;
-            font-family: 'Cascadia Code', 'Courier New', monospace; font-size: 12px;
-            display: flex; flex-direction: column;
+            width: 330px; background: var(--shell); color: #CFE8E1;
+            font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace; font-size: 12px;
+            display: flex; flex-direction: column; border-left: 2px solid var(--base);
         }
-        .dev-header { padding: 12px; background: #252526; color: white; font-family: 'Segoe UI', sans-serif; }
+        .dev-header {
+            padding: 12px 14px; border-bottom: 1px solid #3A3F3E;
+            font-family: 'Space Grotesk'; letter-spacing: .1em; text-transform: uppercase;
+            font-size: 11px; color: var(--micro); background: var(--shell-hi);
+        }
         .dev-content { flex: 1; overflow-y: auto; padding: 10px; }
-        .mcp-message { margin-bottom: 8px; padding: 7px 9px; background: #2d2d2d; border-left: 3px solid #3498db; border-radius: 3px; word-break: break-word; }
-        .mcp-message.out { border-left-color: #f39c12; }
-        .mcp-method { color: #569cd6; font-weight: bold; }
-        .mcp-status { color: #4ec9b0; }
-        .mcp-note { color: #999; font-size: 11px; }
-
-        .controls { padding: 12px; background: #252526; }
-        .control-row { margin-bottom: 10px; }
-        .control-row label { display: block; margin-bottom: 4px; font-family: 'Segoe UI', sans-serif; font-size: 12px; color: #aaa; }
-        .control-row select, .control-row button {
-            padding: 8px; width: 100%; border-radius: 4px; border: none; cursor: pointer;
-            font-family: 'Segoe UI', sans-serif; font-size: 13px;
+        .mcp-message {
+            margin-bottom: 8px; padding: 7px 9px; background: var(--shell-hi);
+            border-left: 3px solid #4E8F81; word-break: break-word;
         }
-        .control-row select { background: #3c3c3c; color: #eee; }
-        .control-row button { background: #0e639c; color: white; }
-        .control-row button.warn { background: #a04000; }
-        .llm-mode { font-family: 'Segoe UI', sans-serif; font-size: 11px; color: #4ec9b0; margin-top: 4px; }
+        .mcp-message.out { border-left-color: var(--hold); }
+        .mcp-method { color: #7FD7C4; font-weight: bold; }
+        .mcp-status { color: #A8C8BE; }
+        .mcp-note { color: #7A8683; font-size: 11px; }
 
-        /* Confirm card */
-        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; display: none; }
+        .controls { padding: 12px; background: var(--shell-hi); border-top: 1px solid #3A3F3E; }
+        .control-row { margin-bottom: 10px; }
+        .control-row label {
+            display: block; margin-bottom: 4px; font-size: 12px; color: #9AA5A2; font-family: 'IBM Plex Sans';
+        }
+        .control-row select, .control-row button {
+            padding: 8px; width: 100%; border: none; cursor: pointer;
+            font-family: 'IBM Plex Sans'; font-size: 13px;
+        }
+        .control-row select { background: var(--base); color: #CFE8E1; }
+        .control-row button { background: var(--micro); color: #fff; }
+        .control-row button.warn { background: var(--alert); }
+        .llm-mode { font-size: 11px; color: #6FA99B; margin-top: 4px; }
+
+        /* ---------- confirm card ---------- */
+        .overlay {
+            position: fixed; inset: 0; background: rgba(28,30,29,.55); z-index: 999; display: none;
+        }
         .confirm-card {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: white; padding: 26px; border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000; min-width: 430px; max-width: 560px;
+            background: var(--paper); padding: 26px; z-index: 1000;
+            border: 2px solid var(--base); min-width: 430px; max-width: 560px;
+            box-shadow: 0 10px 34px rgba(28,30,29,.35);
         }
-        .confirm-card h3 { margin-bottom: 10px; color: #2c3e50; }
-        .confirm-card .src { font-size: 12px; color: #7f8c8d; margin-bottom: 12px; }
+        .confirm-card h3 { font-size: 20px; color: var(--base); margin-bottom: 8px; }
+        .confirm-card .src { font-size: 12px; color: #7f7a70; margin-bottom: 12px; }
         .confirm-changes { margin: 12px 0; max-height: 240px; overflow-y: auto; }
-        .confirm-item { padding: 8px 10px; background: #f5f5f5; margin: 5px 0; border-radius: 5px; font-size: 12.5px; }
+        .confirm-item {
+            padding: 8px 10px; background: #fff; border-left: 3px solid var(--micro); margin: 5px 0; font-size: 12.5px;
+        }
+        .confirm-item.warning { border-left-color: var(--hold); }
         .confirm-item .why { color: #8a6d3b; font-size: 11px; }
         .confirm-buttons { display: flex; gap: 10px; margin-top: 16px; }
-        .confirm-buttons button { flex: 1; padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-size: 15px; }
-        .confirm-btn { background: #27ae60; color: white; }
-        .cancel-btn { background: #e74c3c; color: white; }
+        .confirm-buttons button { flex: 1; padding: 10px; border: none; cursor: pointer; font-size: 15px; font-family: 'Space Grotesk'; }
+        .confirm-btn { background: var(--micro); color: #fff; }
+        .cancel-btn { background: var(--alert); color: #fff; }
+        /* trap keyboard focus inside the modal card while it is open */
+        .confirm-card:focus, .confirm-card[tabindex] { outline: none; }
 
         .hidden { display: none !important; }
 
-        /* ---- Phase 2 polish: motion & feedback (additive) ---- */
-        .message { animation: msg-in .25s ease-out both; }
-        @keyframes msg-in {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: none; }
-        }
-        .outage-banner, .plan-banner, .ok-note {
-            animation: banner-in .3s ease-out both;
-        }
-        @keyframes banner-in {
-            from { opacity: 0; transform: translateY(-6px); }
-            to   { opacity: 1; transform: none; }
-        }
-        .booking { transition: border-color .15s, background .15s, transform .1s; }
-        .booking:hover { transform: translateX(2px); }
-        .action-row button, .chat-input button, .control-row button {
-            transition: background .15s, transform .06s, box-shadow .15s;
-        }
-        .action-row button:hover:not(:disabled), .chat-input button:hover,
-        .control-row button:hover { filter: brightness(1.12); box-shadow: 0 1px 6px rgba(0,0,0,.18); }
-        .action-row button:active, .chat-input button:active,
-        .control-row button:active { transform: scale(.96); }
-        .confirm-card { animation: card-pop .22s cubic-bezier(.2,.9,.3,1.2) both; }
+        /* ---------- motion (deliberate, two moments only) ---------- */
         @keyframes card-pop {
-            from { opacity: 0; transform: translate(-50%, -46%) scale(.92); }
+            from { opacity: 0; transform: translate(-50%, -46%) scale(.96); }
             to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
         }
+        .confirm-card { animation: card-pop .22s cubic-bezier(.2,.9,.3,1.1) both; }
         .overlay { animation: fade-in .18s ease-out both; }
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .message { animation: msg-in .2s ease-out both; }
+        @keyframes msg-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+        .booking { transition: border-color .15s, background .15s; }
         #loading { animation: load-pulse 1.1s ease-in-out infinite; }
-        @keyframes load-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .55; }
-        }
-        .mcp-message { animation: log-in .18s ease-out both; }
-        @keyframes log-in {
-            from { opacity: 0; transform: translateX(8px); }
-            to   { opacity: 1; transform: none; }
-        }
+        @keyframes load-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
         @media (prefers-reduced-motion: reduce) {
-            .message, .outage-banner, .plan-banner, .ok-note, .confirm-card,
-            .overlay, #loading, .mcp-message { animation: none; }
-            .booking, .action-row button, .chat-input button,
-            .control-row button { transition: none; }
+            .confirm-card, .overlay, .message, #loading { animation: none !important; }
         }
 
-        /* ---- Phase 2 polish: responsiveness ---- */
+        /* ---------- responsive ---------- */
         @media (max-width: 1100px) {
             body { flex-direction: column; overflow: auto; height: auto; min-height: 100vh; }
-            .chat-panel { width: 100%; height: auto; max-height: 38vh; border-right: none; border-bottom: 1px solid #dfe4e8; }
+            .chat-panel { width: 100%; height: auto; max-height: 38vh; border-right: none; border-bottom: 1px solid var(--rule); }
             .chat-messages { max-height: 24vh; }
             .schedule-panel { overflow: visible; }
-            .dev-panel { width: 100%; }
+            .dev-panel { width: 100%; border-left: none; border-top: 2px solid var(--base); }
             .dev-content { max-height: 26vh; }
             .confirm-card { min-width: 0; width: 92vw; max-width: 560px; }
             .equipment-grid { flex-direction: column; }
@@ -223,18 +260,21 @@
 
         #loading {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: white; padding: 18px 26px; border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 2000; font-size: 14px;
+            background: var(--paper); padding: 16px 24px; border: 2px solid var(--base);
+            z-index: 2000; font-size: 14px;
         }
     </style>
 </head>
 <body>
-    <!-- Left Panel -->
+    <!-- Left: lab notebook narration -->
     <div class="chat-panel">
-        <div class="chat-header">🚀 Shared Equipment Rescue</div>
+        <div class="chat-header">
+            <div class="kicker">Lab A · Confocal Bay</div>
+            <h1>Shared Equipment Rescue</h1>
+        </div>
         <div class="chat-messages" id="chatMessages">
             <div class="message ai-message">
-                Hi! I'm the shared-equipment scheduling assistant. Pick a role on the right, then report an equipment outage — I'll propose a replan and ask you to confirm before anything is applied.
+                Report an equipment outage and I\u2019ll propose a replan for the affected sessions. Nothing changes on the board until you confirm the replan card.
             </div>
         </div>
         <div class="chat-input">
@@ -243,7 +283,7 @@
         </div>
     </div>
 
-    <!-- Middle Panel -->
+    <!-- Centre: schedule board -->
     <div class="schedule-panel">
         <div class="schedule-bar">
             <h2>Schedule — <span id="schedDate">2026-10-20</span></h2>
@@ -253,42 +293,42 @@
         <div id="scheduleContent"><p>Connecting…</p></div>
     </div>
 
-    <!-- Right Panel -->
+    <!-- Right: protocol console -->
     <div class="dev-panel">
-        <div class="dev-header">🖥 Developer Console (MCP)</div>
+        <div class="dev-header">MCP protocol console</div>
         <div class="dev-content" id="mcpLogs">
             <div class="mcp-message"><span class="mcp-method">System:</span> <span class="mcp-status">not connected</span></div>
         </div>
         <div class="controls">
             <div class="control-row">
-                <label>Acting as (auth token):</label>
+                <label>Acting as (auth token)</label>
                 <select id="userSelect" onchange="changeUser()">
-                    <option value="tok-manager">Priya 👤 Manager (tok-manager)</option>
-                    <option value="tok-chen">Dr. Chen 👤 Researcher A+B (tok-chen)</option>
-                    <option value="tok-wang">Dr. Wang 👤 Researcher A (tok-wang)</option>
-                    <option value="tok-li">Dr. Li 👤 Researcher B (tok-li)</option>
+                    <option value="tok-manager">Priya — Manager (tok-manager)</option>
+                    <option value="tok-chen">Dr. Chen — Researcher A+B (tok-chen)</option>
+                    <option value="tok-wang">Dr. Wang — Researcher A (tok-wang)</option>
+                    <option value="tok-li">Dr. Li — Researcher B (tok-li)</option>
                 </select>
             </div>
             <div class="control-row">
                 <button onclick="resetDemo()">Reset demo data</button>
             </div>
-            <div class="llm-mode" id="llmMode">identity comes from the token — never from tool args</div>
+            <div class="llm-mode">identity comes from the token — never from tool args</div>
         </div>
     </div>
 
-    <!-- Confirm Card Overlay -->
+    <!-- Confirm card -->
     <div class="overlay" id="confirmOverlay"></div>
     <div class="confirm-card hidden" id="confirmCard">
-        <h3>🔑 Apply this replan?</h3>
-        <div class="src">MCP elicitation/create — only your click answers this. The LLM cannot confirm for you.</div>
+        <h3 id="confirmTitle">Apply this replan?</h3>
+        <div class="src">Only your click answers this. The assistant cannot confirm for you.</div>
         <div class="confirm-changes" id="confirmChanges"></div>
         <div class="confirm-buttons">
-            <button class="confirm-btn" id="confirmYes">Confirm ✓</button>
-            <button class="cancel-btn" id="confirmNo">Cancel ✗</button>
+            <button class="confirm-btn" id="confirmYes">Confirm</button>
+            <button class="cancel-btn" id="confirmNo">Cancel</button>
         </div>
     </div>
 
-    <div class="hidden" id="loading">⏳ Working</div>
+    <div class="hidden" id="loading">Working…</div>
 
     <script type="module">
         import { createSession, callTool, closeSession } from '/static/mcp-client.bundle.js';
@@ -303,18 +343,15 @@
         const OUT_SIGN = '\u2192';
         const IN_SIGN = '\u2190';
 
-        // Safe tool wrapper: transport/SDK errors become a normal {status:'transport_error'} result
-        // so every caller's switch/default handles them without unhandled rejections.
         async function safeCall(toolName, args) {
             try {
                 return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
             } catch (err) {
                 logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
-                return { status: 'transport_error', message: 'MCP server unreachable or session dropped - start/restart it on :8765, then \u21bb Refresh.' };
+                return { status: 'transport_error', message: 'MCP server unreachable or session dropped — start/restart it on :8765, then use Refresh.' };
             }
         }
 
-        // ---------- logging / narration ----------
         function logMCP(direction, method, status = '', note = '') {
             const entry = document.createElement('div');
             entry.className = 'mcp-message' + (direction === 'out' ? ' out' : '');
@@ -323,28 +360,29 @@
                 (status ? '<span class="mcp-status">' + status + '</span>' : '') +
                 (note ? '<br><span class="mcp-note">' + escapeHtml(note) + '</span>' : '');
             $('mcpLogs').prepend(entry);
-            // Bound the dev console: drop oldest entries beyond 200 (long demo sessions).
             const logs = $('mcpLogs');
             while (logs.children.length > 200) logs.removeChild(logs.lastChild);
         }
+
         function addMessage(text, type = 'ai') {
             const msg = document.createElement('div');
             msg.className = 'message ' + type + '-message';
             msg.textContent = text;
             const chat = $('chatMessages');
             chat.appendChild(msg);
-            // Bound the chat: reveal the newest 150 messages (long demo sessions).
             while (chat.children.length > 150) chat.removeChild(chat.firstChild);
             chat.scrollTop = chat.scrollHeight;
         }
+
         function escapeHtml(sx) {
             return String(sx == null ? '' : sx).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
+
         function showLoading(show) { $('loading').classList.toggle('hidden', !show); }
 
-        // ---------- reason rendering ----------
         function fmtTime(iso) { return String(iso == null ? '' : iso).replace('T', ' ').substring(11, 16); }
         function fmtRange(a, b) { return fmtTime(a) + '\u2013' + fmtTime(b); }
+
         function reasonText(r) {
             if (!r) return '';
             const bits = [];
@@ -361,17 +399,18 @@
             if (r.message) bits.push(r.message);
             return bits.join(' ');
         }
+
         function reasonsHtml(reasons) {
             if (!Array.isArray(reasons) || reasons.length === 0) return '';
             return '<div class="reason-list">\u21b3 ' +
                 reasons.map(r => escapeHtml(reasonText(r))).join('  \u00b7  ') + '</div>';
         }
+
         function reasonsPlain(reasons) {
             if (!Array.isArray(reasons) || reasons.length === 0) return '';
             return ' \u21b3 ' + reasons.map(r => reasonText(r)).join('  \u00b7  ');
         }
 
-        // ---------- schedule rendering ----------
         function renderSchedule(data) {
             $('schedDate').textContent = data.date;
             $('verBadge').textContent = 'v' + data.schedule_version;
@@ -382,19 +421,19 @@
             let html = '';
 
             for (const o of (data.open_outages || [])) {
-                html += '<div class="outage-banner">\u26a0\ufe0f <b>' + escapeHtml(o.equipment_name) +
+                html += '<div class="outage-banner"><b>' + escapeHtml(o.equipment_name) +
                     '</b> down ' + fmtRange(o.start, o.end) +
                     (o.reason ? ' \u2014 ' + escapeHtml(o.reason) : '') +
                     ' \u00b7 ' + o.unresolved_booking_ids.length + ' unresolved</div>';
             }
             for (const p of (data.pending_plans || [])) {
-                html += '<div class="plan-banner">\ud83d\udcdd Pending plan <code>' + escapeHtml(p.plan_id) +
+                html += '<div class="plan-banner">Pending plan <code>' + escapeHtml(p.plan_id) +
                     '</code> for outage ' + escapeHtml(p.outage_id) + ' \u2014 ' +
                     p.change_count + ' move(s), ' + p.unresolved_count + ' unresolved \u00b7 based on v' +
                     p.based_on_version + '</div>';
             }
             if ((data.open_outages || []).length === 0 && (data.pending_plans || []).length === 0) {
-                html += '<div class="ok-note">\u2705 No open outages \u2014 all bookings in place.</div>';
+                html += '<div class="ok-note">No open outages \u2014 all bookings in place.</div>';
                 if (data.message) html += '<div class="reason-note">' + escapeHtml(data.message) + '</div>';
             }
 
@@ -420,7 +459,7 @@
                     const moved = (!masked && b.affected_by_outage && b.status === 'confirmed')
                         ? '<span class="moved-tag">moved for ' + escapeHtml(b.affected_by_outage) + '</span>' : '';
                     const statusTag = (!masked && b.status && b.status !== 'confirmed')
-                        ? '<span class="moved-tag" style="color:#b03a2e">[' + escapeHtml(b.status) + ']</span>' : '';
+                        ? ' <span class="moved-tag" style="color:#b03a2e">[' + escapeHtml(b.status) + ']</span>' : '';
 
                     html += '<div class="' + cls + '">' +
                         '<div><span class="b-time">' + fmtRange(b.start, b.end) + '</span> \u00b7 <span class="b-user">' +
@@ -434,23 +473,22 @@
             const isManager = data.viewer.role === 'manager';
             html += '<div class="action-row">';
             if (isManager) {
-                html += '<button onclick="window.reportOutageFlow()">\ud83d\udea8 Report outage (Confocal A 10:00\u201316:00)</button>';
+                html += '<button onclick="window.reportOutageFlow()">Report outage (Confocal A 10:00\u201316:00)</button>';
                 for (const o of (data.open_outages || [])) {
                     html += '<button class="amber" onclick="window.proposeFlow(\'' + escapeHtml(o.id) +
-                        '\')">\ud83e\udde0 Propose replan for ' + escapeHtml(o.id) + '</button>';
+                        '\')">Propose replan for ' + escapeHtml(o.id) + '</button>';
                 }
                 for (const p of (data.pending_plans || [])) {
                     html += '<button class="green" onclick="window.applyFlow(\'' + escapeHtml(p.plan_id) +
-                        '\', ' + data.schedule_version + ')">\ud83d\udd12 Apply ' + escapeHtml(p.plan_id) + '</button>';
+                        '\', ' + data.schedule_version + ')">Apply ' + escapeHtml(p.plan_id) + '</button>';
                 }
             }
-            html += '<button class="gray" onclick="window.loadSchedule()">\u21bb Refresh</button>';
+            html += '<button class="gray" onclick="window.loadSchedule()">Refresh</button>';
             html += '</div>';
 
             c.innerHTML = html;
         }
 
-        // ---------- session ----------
         async function connect(token) {
             if (client) await closeSession(client);
             logMCP('out', 'initialize', '', 'token ' + token.slice(4) + '\u2026 (identity from header)');
@@ -465,7 +503,7 @@
             if (!client) return;
             const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
             if (data.status === 'ok') renderSchedule(data);
-            else if (data.status === 'forbidden') addMessage('\u26d4 You do not have access to this schedule.', 'outage-message');
+            else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
             return data;
         }
 
@@ -473,13 +511,12 @@
             const token = $('userSelect').value;
             if (token === currentToken && client) return;
             currentToken = token;
-            addMessage('\ud83d\udd11 Now acting as ' + $('userSelect').selectedOptions[0].textContent.split(' (')[0] +
+            addMessage('Now acting as ' + $('userSelect').selectedOptions[0].textContent.split(' (')[0] +
                 ' (header Bearer ' + token + ')', 'system');
             await connect(token);
             await loadSchedule();
         }
 
-        // ---------- flows ----------
         async function reportOutageFlow() {
             showLoading(true);
             try {
@@ -497,28 +534,28 @@
             switch (data.status) {
                 case 'recorded': {
                     const n = (data.affected_bookings || []).length;
-                    addMessage('\ud83d\udea8 Outage recorded: ' + (data.equipment || {}).name + ' \u2014 ' + n +
+                    addMessage('Outage recorded: ' + (data.equipment || {}).name + ' \u2014 ' + n +
                         ' booking(s) affected, ' + data.unaffected_count + ' untouched. Schedule is now v' +
-                        data.schedule_version + '. Proposing a replan...', 'outage-message');
+                        data.schedule_version + '. Proposing a replan\u2026', 'outage-message');
                     logMCP('in', 'report_outage', 'recorded', 'outage ' + data.outage_id + ', affected ' + n);
                     proposeFlow(data.outage_id);
                     break;
                 }
                 case 'duplicate_outage':
-                    addMessage('\u2139\ufe0f This outage was already recorded (' + data.outage_id + '). Nothing changed.', 'system');
+                    addMessage('This outage was already recorded (' + data.outage_id + '). Nothing changed.', 'system');
                     loadSchedule();
                     break;
                 case 'invalid_argument':
-                    addMessage('\u26a0\ufe0f ' + (data.message || 'Invalid argument.'), 'outage-message');
+                    addMessage((data.message || 'Invalid argument.'), 'outage-message');
                     break;
                 case 'forbidden':
-                    addMessage('\u26d4 Only the manager can record outages.', 'outage-message');
+                    addMessage('Only the manager can record outages.', 'outage-message');
                     break;
                 default:
                     if (data.status === 'transport_error') {
-                        addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection to the MCP server failed.'), 'outage-message');
+                        addMessage(escapeHtml(data.message || 'Connection to the MCP server failed.'), 'outage-message');
                     } else {
-                        addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                        addMessage(data.status, 'outage-message');
                     }
                     loadSchedule();
             }
@@ -540,7 +577,7 @@
                 case 'proposed': {
                     lastProposals.set(data.outage_id, data);
                     const s = data.summary || {};
-                    addMessage('\ud83e\udde0 Replan proposed (' + data.plan_id + '): ' +
+                    addMessage('Replan proposed (' + data.plan_id + '): ' +
                         (s.rescheduled != null ? s.rescheduled : (data.changes || []).length) + ' move(s), ' +
                         (s.unresolved != null ? s.unresolved : (data.unresolved || []).length) +
                         ' cannot be fully fixed. Review below, then Apply.', 'ai');
@@ -559,32 +596,32 @@
                                 : e.status === 'unavailable' ? 'no access at all' : e.status)).join('  \u00b7  ');
                         addMessage('\u2717 ' + u.user + ': kept on ' + (u.equipment_name || '') + ' ' +
                             fmtRange(u.original_start, u.original_end) + reasonsPlain(u.reasons) +
-                            (epTxt ? '\n\ud83d\udcac earliest alternatives \u2014 ' + epTxt : ''), 'outage-message');
+                            (epTxt ? '\nEarliest alternatives \u2014 ' + epTxt : ''), 'outage-message');
                     }
                     const c = $('scheduleContent');
                     const row = document.createElement('div');
                     row.className = 'action-row';
                     row.innerHTML = '<button class="green" onclick="window.applyFlow(\'' + escapeHtml(data.plan_id) +
-                        '\', ' + data.schedule_version + ')">\ud83d\udd12 Apply ' + escapeHtml(data.plan_id) + '</button>';
+                        '\', ' + data.schedule_version + ')">Apply ' + escapeHtml(data.plan_id) + '</button>';
                     c.appendChild(row);
                     break;
                 }
                 case 'plan_stale':
-                    addMessage('\ud83d\udd52 Version moved (now v' + data.schedule_version + ') \u2014 plan must be recomputed. Re-proposing...', 'system');
+                    addMessage('Version moved (now v' + data.schedule_version + ') \u2014 plan must be recomputed. Re-proposing\u2026', 'system');
                     loadSchedule().then(() => proposeFlow(data.outage_id));
                     break;
                 case 'outage_resolved':
-                    addMessage('\u2705 This outage has no unresolved bookings anymore.', 'system');
+                    addMessage('This outage has no unresolved bookings anymore.', 'system');
                     loadSchedule();
                     break;
                 case 'unknown_outage':
-                    addMessage('\u26a0\ufe0f Unknown outage id.', 'outage-message');
+                    addMessage('Unknown outage id.', 'outage-message');
                     break;
                 case 'transport_error':
-                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
+                    addMessage(escapeHtml(data.message || 'Connection failed.'), 'outage-message');
                     break;
                 default:
-                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    addMessage(data.status, 'outage-message');
                     loadSchedule();
             }
         }
@@ -598,7 +635,7 @@
                 });
                 handleApplyResult(data);
             } catch (err) {
-                addMessage('\u26a0\ufe0f Apply failed: ' + err.message, 'outage-message');
+                addMessage('Apply failed: ' + err.message, 'outage-message');
             } finally {
                 hideConfirmCard();
                 showLoading(false);
@@ -609,7 +646,7 @@
             switch (data.status) {
                 case 'applied': {
                     const cb = data.confirmed_by || {};
-                    addMessage('\u2705 Replan applied (v' + data.new_version + '), confirmed by ' +
+                    addMessage('Replan applied (v' + data.new_version + '), confirmed by ' +
                         (cb.name || cb.user_id) + ' at ' + String(data.confirmed_at || '').substring(11, 19) + '.', 'ai');
                     for (const ch of (data.applied_changes || [])) {
                         addMessage('\u2714 ' + ch.user + ': ' + fmtRange(ch.from_start, ch.from_end) + ' => ' +
@@ -623,14 +660,14 @@
                     break;
                 }
                 case 'not_confirmed':
-                    addMessage('\ud83d\udeab You declined (or cancelled) the confirmation \u2014 nothing was applied. Schedule unchanged.', 'system');
+                    addMessage('You declined the confirmation \u2014 nothing was applied. Schedule unchanged.', 'system');
                     break;
                 case 'already_applied':
-                    addMessage('\u2139\ufe0f This plan was already applied.', 'system');
+                    addMessage('This plan was already applied.', 'system');
                     break;
                 case 'plan_stale': {
                     const v = data.schedule_version != null ? data.schedule_version : (lastSchedule && lastSchedule.schedule_version);
-                    addMessage('\ud83d\udd52 Version moved in the meantime (now v' + v + ') \u2014 nothing applied. Refreshing and re-proposing...', 'system');
+                    addMessage('Version moved in the meantime (now v' + v + ') \u2014 nothing applied. Refreshing and re-proposing\u2026', 'system');
                     loadSchedule().then(() => {
                         const open = ((lastSchedule || {}).open_outages || [])[0];
                         if (open) proposeFlow(open.id);
@@ -638,13 +675,13 @@
                     break;
                 }
                 case 'unknown_plan':
-                    addMessage('\u26a0\ufe0f Unknown plan id.', 'outage-message');
+                    addMessage('Unknown plan id.', 'outage-message');
                     break;
                 case 'transport_error':
-                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
+                    addMessage(escapeHtml(data.message || 'Connection failed.'), 'outage-message');
                     break;
                 default:
-                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    addMessage(data.status, 'outage-message');
             }
             loadSchedule();
         }
@@ -654,19 +691,19 @@
             try {
                 const data = await safeCall('reset_demo_data', {});
                 if (data.status === 'reset') {
-                    addMessage('\u267b\ufe0f Demo data reset to seed state (v1).', 'system');
+                    addMessage('Demo data reset to seed state (v1).', 'system');
                 } else if (data.status === 'forbidden') {
-                    addMessage('\u26d4 Only the manager can reset the demo.', 'outage-message');
+                    addMessage('Only the manager can reset the demo.', 'outage-message');
                 } else if (data.status === 'transport_error') {
-                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
+                    addMessage(escapeHtml(data.message || 'Connection failed.'), 'outage-message');
                 }
                 lastProposals.clear();
                 await loadSchedule();
             } finally { showLoading(false); }
         }
 
-        // ---------- elicitation confirm card ----------
         let pendingElicit = null;
+        let lastFocused = null;
         function showConfirmCard(req) {
             return new Promise((resolve) => {
                 pendingElicit = { resolve };
@@ -676,7 +713,7 @@
                 const prop = Array.from(lastProposals.values()).pop();
                 if (prop) {
                     for (const ch of (prop.changes || [])) {
-                        html += '<div class="confirm-item">\ud83d\udd04 <b>' + escapeHtml(ch.user) + '</b>: ' +
+                        html += '<div class="confirm-item">\u21bb <b>' + escapeHtml(ch.user) + '</b>: ' +
                             escapeHtml(ch.original_equipment_name || '') + ' ' +
                             fmtRange(ch.original_start, ch.original_end) + ' => ' +
                             escapeHtml(ch.new_equipment_name || '') + ' ' +
@@ -686,7 +723,7 @@
                                 : '') + '</div>';
                     }
                     for (const u of (prop.unresolved || [])) {
-                        html += '<div class="confirm-item">\u26a0\ufe0f <b>' + escapeHtml(u.user) + '</b>: stays on ' +
+                        html += '<div class="confirm-item warning">\u26a0 <b>' + escapeHtml(u.user) + '</b>: stays on ' +
                             escapeHtml(u.equipment_name || '') + ' ' + fmtRange(u.original_start, u.original_end) +
                             ' (unresolved)</div>';
                     }
@@ -698,17 +735,30 @@
                 cc.classList.remove('hidden');
                 cc.setAttribute('role', 'dialog');
                 cc.setAttribute('aria-modal', 'true');
+                cc.setAttribute('aria-labelledby', 'confirmTitle');
+                lastFocused = document.activeElement;
                 $('confirmYes').focus();
                 $('confirmYes').onclick = () => finish(true);
                 $('confirmNo').onclick = () => finish(false);
+                // focus trap: Tab / Shift+Tab cycle inside the card
+                cc.onkeydown = (ev) => {
+                    if (ev.key !== 'Tab') return;
+                    const focusables = [ $('confirmYes'), $('confirmNo') ];
+                    const idx = focusables.indexOf(document.activeElement);
+                    if (ev.shiftKey && (idx === 0 || idx === -1)) { ev.preventDefault(); focusables[focusables.length - 1].focus(); }
+                    else if (!ev.shiftKey && idx === focusables.length - 1) { ev.preventDefault(); focusables[0].focus(); }
+                };
                 function finish(v) {
                     $('confirmOverlay').style.display = 'none';
                     cc.classList.add('hidden');
                     pendingElicit = null;
+                    if (lastFocused && lastFocused.focus) lastFocused.focus();
+                    lastFocused = null;
                     resolve({ confirmed: v });
                 }
             });
         }
+
         function hideConfirmCard() {
             if (pendingElicit) {
                 pendingElicit.resolve({ confirmed: false });
@@ -717,16 +767,15 @@
             $('confirmOverlay').style.display = 'none';
             $('confirmCard').classList.add('hidden');
         }
-        // Keyboard a11y: Escape answers the elicitation with Cancel (decline); focus the card when shown.
+
         document.addEventListener('keydown', (ev) => {
             if (ev.key === 'Escape' && pendingElicit) {
                 ev.preventDefault();
                 hideConfirmCard();
-                addMessage('\u21ba Confirmation cancelled with Escape \u2014 nothing was applied.', 'system');
+                addMessage('Confirmation cancelled with Escape \u2014 nothing was applied.', 'system');
             }
         });
 
-        // ---------- free-text quick parse ----------
         function sendMessage() {
             const input = $('userInput');
             const text = input.value.trim();
@@ -745,7 +794,7 @@
                 const endH = until ? parseInt(until[1], 10) : 16;
                 const endM = until && until[2] ? until[2] : '00';
                 if (currentToken !== 'tok-manager') {
-                    addMessage('\u26d4 Only the manager (Priya) can record outages. Switch identity on the right.', 'outage-message');
+                    addMessage('Only the manager (Priya) can record outages. Switch identity on the right.', 'outage-message');
                     return;
                 }
                 addMessage('Understood \u2014 reporting ' + (eq === 'confocal-a' ? 'Confocal A' : 'Confocal B') +
@@ -788,7 +837,7 @@
                 await loadSchedule();
             } catch (err) {
                 logMCP('in', 'initialize', 'FAIL', err.message);
-                addMessage('\u26a0\ufe0f Cannot reach the MCP server on :8765 \u2014 start it with "python -X utf8 tools\\dev_server2.py", then press \u21bb Refresh.', 'outage-message');
+                addMessage('Cannot reach the MCP server on :8765 \u2014 start it, then use Refresh.', 'outage-message');
             }
         });
     </script>
