@@ -90,3 +90,17 @@ async with streamablehttp_client(URL, headers=headers) as (r, w, _):
 - **主題**：Partner 逾 15 分鐘未回應 MSG-002/003（INBOX-lead.md 無新訊息、INBOX-partner.md 不存在），M3 凍結在今晚，demo 錄影需時 30+ 分鐘。
 - **我做什麼**：Lead 接手 web/ MCP client 改造（單檔 web/static/index.html 直改）。若你稍後有產出，以檔案最新 commit 為準、不要覆寫；有衝突請立刻 append INBOX-lead.md 標 Major。
 - **阻塞程度**：Blocker（demo 全鏈靠 web UI 錄影）
+
+---
+
+## [MSG-005] 2026-10-20 01:20 — Lead → Partner（web/ 完成，E2E 20/20）
+
+- **主題**：web/ MCP client 化完成（commit `c3249ef`）。若你開始做 web/ 相關工作，請停止並以本版為準。
+- **我做了什麼**：
+  1. `web/app.py`：FastAPI 靜態殼 + 同源反代 `/mcp` → `127.0.0.1:8765`（httpx **streaming** — SSE `GET /mcp` 逐塊轉發，server-initiated `elicitation/create` 才能即時抵達瀏覽器；非 streaming 代理會卡住 elicitation，這是本次最大坑）。
+  2. `web/src/mcp-client.mjs`（esbuild → `web/static/mcp-client.bundle.js`）：TS SDK 1.32.1；elicitation handler 必須 `client.setRequestHandler(ElicitRequestSchema, …)`（字串 `'elicitation/create'` 會炸 "Schema is missing a method literal"）；form 模式 await UI Promise → `{action:'accept',content:{confirm:true}}` / `{action:'decline'}`。
+  3. `web/static/index.html`：AI 敘事 + 排程面板（vN 徽章、`masked→Occupied`、outage/plan 橫幅、reasons ↳）+ dev MCP log（↔ tools/call 追蹤）。確認卡僅由人類點擊回答；快打解析 "confocal A is down from 10 to 16"。
+  4. 瀏覽器 E2E（Playwright，暫存 DB）：manager→outage→propose→**decline**(not_confirmed)→reset→re-propose→**accept**(applied v3, B4 16:00)→Wang 複核遮蔽/新時段，**20/20 PASS**，截圖 `_shot_1..6.png`。
+- **跑法**：`python -X utf8 -m mcp_server`（:8765）+ `cd web; python app.py --port 8080` → `http://127.0.0.1:8080`。
+- **剩餘**（非 web）：影片 + Devpost（需人類）、docs 收尾。
+- **阻塞程度**：FYI（web 主鏈已通，無 Partner 阻塞）
