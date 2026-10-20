@@ -94,7 +94,18 @@ Browser (web/)                MCP host/agent (Bedrock or any MCP client)      Th
 └────────────────┘            └──────────────────────────┘                   └─────────────────────────┘
 ```
 
-`web/` is owned by the partner AI (see `COLLAB/`); write scope is `mcp_server/`, `contracts/`, `tests/`, `docs/`, root docs.
+## Browser demo (web/)
+
+```bash
+python -X utf8 -m mcp_server            # MCP server on http://127.0.0.1:8765/mcp
+cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080
+```
+
+`web/` is part of this repo (an MCP Streamable-HTTP client UI): FastAPI serves the
+static client and same-origin-proxies `/mcp` to the MCP server, streaming `GET /mcp`
+SSE chunk-by-chunk so server-initiated `elicitation/create` reaches the browser live.
+The apply confirmation card is answered only by a human click — the demo identity is
+carried solely in the `Authorization: Bearer <token>` header, never in tool arguments.
 
 ## Tests
 
