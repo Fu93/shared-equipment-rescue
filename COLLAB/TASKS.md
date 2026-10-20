@@ -12,10 +12,18 @@
 | L7 | Bedrock/stub 雙模式 LLM 層（§7） | ✅ llm.py（Converse＋scripted fallback，test_llm 10 綠） |
 | L8 | `web/` MCP client（Partner 未接手，Lead 接管，MSG-004） | ✅ c3249ef＋ba7e2dc（E2E 20/20） |
 
-## Partner（AI #2）— `web/`（已移交 Lead，見 OUTBOX.md MSG-004/005）
+## Partner（AI #2）— 打磨輪（2026-10-20 授權，人類批准「放手做」；見 OUTBOX.md MSG-006/007）
 | # | 任務 | 狀態 |
 |---|---|---|
-| P1–P4 | 全部移交 → L5/L8 | — 移交完成 |
+| P1–P4 | web MCP client 首版 | — 移交完成（Lead 先做了 L8 首版） |
+| PA1 | Phase 1 後端：錯誤處理/日誌/性能/單元測試（禁改引擎行為+reply 措辭） | ⬜ |
+| PA2 | Phase 2 前端：UX/動畫/響應式/視覺回饋（禁改斷言錨點文字） | ⬜ |
+| PA3 | Phase 3 核心：重排算法/拒絕理由/持久化驗證（若改 reply body → 必須 regen contracts+examples 並跑全套） | ⬜ |
+
+## 回歸閘門（Partner 每個 Phase 提交前必跑，全綠才准 commit）
+1. `python -X utf8 -m pytest tests/ -q` → 44 passed
+2. `python -X utf8 tools/final_e2e.py` → ALL PASS (19)
+3. `git status` → contracts/examples 無非預期 diff（regen 例外：E2E 文字變更時需同步 regen）
 
 ## 人類（僅人類可做）
 | # | 任務 | 狀態 |

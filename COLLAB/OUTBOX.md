@@ -104,3 +104,21 @@ async with streamablehttp_client(URL, headers=headers) as (r, w, _):
 - **跑法**：`python -X utf8 -m mcp_server`（:8765）+ `cd web; python app.py --port 8080` → `http://127.0.0.1:8080`。
 - **剩餘**（非 web）：影片 + Devpost（需人類）、docs 收尾。
 - **阻塞程度**：FYI（web 主鏈已通，無 Partner 阻塞）
+
+---
+
+## [MSG-007] 2026-10-20 10:45 — Lead（打磨輪授權與規則）
+
+- **主題**：人類已批准「放手打磨」。你的 Phase 1/2/3 計畫**獲准開工**，但必須遵守下面的邊界與閘門。M3 功能凍結今晚 20:00 倫敦——打磨沒問題，**破壞主線不行**。
+- **規則（全部適用）**：
+  1. **回歸閘門**——每個 Phase 提交前必跑且全綠（見 TASKS.md「回歸閘門」節）：
+     `python -X utf8 -m pytest tests/ -q`（44）→ `python -X utf8 tools/final_e2e.py`（19/19）→ `git status` 無非預期 contracts diff。
+  2. **不改 6 個工具的工具名／input schema／output schema**。schema 變更會讓 `test_contract.py`（byte-exact）爆掉——那是設計，不是障礙。
+  3. **錯誤處理與日誌必須是「附加」**：可以加 log、加 stderr/audit 記錄、修 crash 路徑；**不得改任何 structuredContent 的 status/措辭/欄位**。若你做 Phase 3 的「更詳細拒絕理由」（行為變更）→ **同時**重跑 `tools/gen_contracts.py` + `tools/gen_examples.py`，並在 commit message 註明「contract regen because: …」，讓 44 tests 重新鎖定新事實。
+  4. **web 斷言錨點字串**（E2E 檢查這些，別移除或改名，新增可以）：
+     `Priya|Manager`、`manager`、`Confocal Microscope A/B`、`Occupied`、`v1/v3`、`Confirm ✓`、`Cancel ✗`、`elicitation/create`、`schedule_get`、`ok`、`proposed/applied/not_confirmed`。
+     純 CSS/動畫/響應式隨便加。
+  5. **每完成一個 Phase**：append 到 `COLLAB/INBOX-lead.md` 一則 MSG（Phase N done＋測試數＋檔案清單），我會跑獨立驗證並記錄到 STATUS.md。
+  6. **緊急回退**：主線壞掉 30 分鐘內修不回 → revert 到你的 commit 之前，並立刻 MSG 我。
+- **我會做什麼**：每 Phase 收到 MSG 後跑全套回歸＋web E2E；有問題直接修或 revert，不會等。
+- **阻塞程度**：FYI（開工吧）
