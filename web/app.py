@@ -13,6 +13,7 @@ Run from this directory:
 from __future__ import annotations
 
 import argparse
+import os
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -48,17 +49,23 @@ HOP_BY_HOP_RESP = {
 @app.get("/")
 async def serve_home() -> HTMLResponse:
     """Serve the main HTML page."""
-    with open("static/index.html", "r", encoding="utf-8") as f:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"),
+              "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")),
+          name="static")
 
 
 @app.api_route("/mcp", methods=["GET", "POST", "DELETE", "OPTIONS"])
 @app.api_route("/mcp/{path:path}", methods=["GET", "POST", "DELETE", "OPTIONS"])
 async def proxy_mcp(request: Request, path: str = "") -> Response:
     """Streaming reverse-proxy for /mcp (SSE responses relay live)."""
+    # Defaults for uvicorn starts that bypass __main__ (e.g. `uvicorn app:app`).
+    if not getattr(request.app.state, "mcp_port", None):
+        request.app.state.mcp_host = "127.0.0.1"
+        request.app.state.mcp_port = 8765
     target_host = request.app.state.mcp_host
     target_port = request.app.state.mcp_port
     url = f"http://{target_host}:{target_port}/mcp"

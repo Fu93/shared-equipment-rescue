@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -303,6 +303,17 @@
         const OUT_SIGN = '\u2192';
         const IN_SIGN = '\u2190';
 
+        // Safe tool wrapper: transport/SDK errors become a normal {status:'transport_error'} result
+        // so every caller's switch/default handles them without unhandled rejections.
+        async function safeCall(toolName, args) {
+            try {
+                return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+            } catch (err) {
+                logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
+                return { status: 'transport_error', message: 'MCP server unreachable or session dropped - start/restart it on :8765, then \u21bb Refresh.' };
+            }
+        }
+
         // ---------- logging / narration ----------
         function logMCP(direction, method, status = '', note = '') {
             const entry = document.createElement('div');
@@ -446,7 +457,7 @@
 
         async function loadSchedule() {
             if (!client) return;
-            const data = await callTool(client, 'schedule_get', { unit_id: 'lab-a', date: DEMO_DATE }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+            const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
             if (data.status === 'ok') renderSchedule(data);
             else if (data.status === 'forbidden') addMessage('\u26d4 You do not have access to this schedule.', 'outage-message');
             return data;
@@ -466,12 +477,12 @@
         async function reportOutageFlow() {
             showLoading(true);
             try {
-                const data = await callTool(client, 'equipment_report_outage', {
+                const data = await safeCall('equipment_report_outage', {
                     equipment_id: 'confocal-a',
                     start: DEMO_DATE + 'T10:00:00+01:00',
                     end: DEMO_DATE + 'T16:00:00+01:00',
                     reason: 'Laser failure \u2014 reported by facility',
-                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                });
                 handleOutageResult(data);
             } finally { showLoading(false); }
         }
@@ -498,7 +509,11 @@
                     addMessage('\u26d4 Only the manager can record outages.', 'outage-message');
                     break;
                 default:
-                    addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    if (data.status === 'transport_error') {
+                        addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection to the MCP server failed.'), 'outage-message');
+                    } else {
+                        addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
+                    }
                     loadSchedule();
             }
         }
@@ -506,10 +521,10 @@
         async function proposeFlow(outageId) {
             showLoading(true);
             try {
-                const data = await callTool(client, 'schedule_propose_replan', {
+                const data = await safeCall('schedule_propose_replan', {
                     outage_id: outageId,
                     schedule_version: lastSchedule.schedule_version,
-                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                });
                 handleProposeResult(data);
             } finally { showLoading(false); }
         }
@@ -559,6 +574,9 @@
                 case 'unknown_outage':
                     addMessage('\u26a0\ufe0f Unknown outage id.', 'outage-message');
                     break;
+                case 'transport_error':
+                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
+                    break;
                 default:
                     addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
                     loadSchedule();
@@ -568,10 +586,10 @@
         async function applyFlow(planId, version) {
             showLoading(true);
             try {
-                const data = await callTool(client, 'schedule_apply_replan', {
+                const data = await safeCall('schedule_apply_replan', {
                     plan_id: planId,
                     schedule_version: version,
-                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                });
                 handleApplyResult(data);
             } catch (err) {
                 addMessage('\u26a0\ufe0f Apply failed: ' + err.message, 'outage-message');
@@ -616,6 +634,9 @@
                 case 'unknown_plan':
                     addMessage('\u26a0\ufe0f Unknown plan id.', 'outage-message');
                     break;
+                case 'transport_error':
+                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
+                    break;
                 default:
                     addMessage('\u26a0\ufe0f ' + data.status, 'outage-message');
             }
@@ -625,11 +646,13 @@
         async function resetDemo() {
             showLoading(true);
             try {
-                const data = await callTool(client, 'reset_demo_data', {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                const data = await safeCall('reset_demo_data', {});
                 if (data.status === 'reset') {
                     addMessage('\u267b\ufe0f Demo data reset to seed state (v1).', 'system');
                 } else if (data.status === 'forbidden') {
                     addMessage('\u26d4 Only the manager can reset the demo.', 'outage-message');
+                } else if (data.status === 'transport_error') {
+                    addMessage('\u26a0\ufe0f ' + escapeHtml(data.message || 'Connection failed.'), 'outage-message');
                 }
                 lastProposals.clear();
                 await loadSchedule();
@@ -667,6 +690,9 @@
                 box.innerHTML = html;
                 $('confirmOverlay').style.display = 'block';
                 cc.classList.remove('hidden');
+                cc.setAttribute('role', 'dialog');
+                cc.setAttribute('aria-modal', 'true');
+                $('confirmYes').focus();
                 $('confirmYes').onclick = () => finish(true);
                 $('confirmNo').onclick = () => finish(false);
                 function finish(v) {
@@ -685,6 +711,14 @@
             $('confirmOverlay').style.display = 'none';
             $('confirmCard').classList.add('hidden');
         }
+        // Keyboard a11y: Escape answers the elicitation with Cancel (decline); focus the card when shown.
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape' && pendingElicit) {
+                ev.preventDefault();
+                hideConfirmCard();
+                addMessage('\u21ba Confirmation cancelled with Escape \u2014 nothing was applied.', 'system');
+            }
+        });
 
         // ---------- free-text quick parse ----------
         function sendMessage() {
@@ -726,9 +760,9 @@
         async function doReport(eq, start, end) {
             showLoading(true);
             try {
-                const data = await callTool(client, 'equipment_report_outage', {
+                const data = await safeCall('equipment_report_outage', {
                     equipment_id: eq, start, end, reason: 'Reported via chat',
-                }, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                });
                 handleOutageResult(data);
             } finally { showLoading(false); }
         }
@@ -743,8 +777,13 @@
         window.showConfirmCard = showConfirmCard;
 
         window.addEventListener('DOMContentLoaded', async () => {
-            await connect(currentToken);
-            await loadSchedule();
+            try {
+                await connect(currentToken);
+                await loadSchedule();
+            } catch (err) {
+                logMCP('in', 'initialize', 'FAIL', err.message);
+                addMessage('\u26a0\ufe0f Cannot reach the MCP server on :8765 \u2014 start it with "python -X utf8 tools\\dev_server2.py", then press \u21bb Refresh.', 'outage-message');
+            }
         });
     </script>
 </body>

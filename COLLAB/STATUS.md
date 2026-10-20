@@ -1,3 +1,10 @@
+## 2026-10-20 14:12 - Lead polish round 3 (frontend/backend resilience): 4 hardening fixes + deep7 10/10
+- **web/static/index.html**: (1) boot failure now degrades gracefully - no more silent "Connecting..." when :8765 is down; (2) safeCall() wraps all 7 tool-call sites, transport/SDK errors become transport_error results handled per-flow (zero unhandled rejections); (3) confirm card: Escape = cancel (decline, zero side effect), role=dialog + aria-modal + auto-focus.
+- **web/app.py**: static paths are now absolute (locdir-independent import), app.state mcp_host/port fallback for uvicorn starts bypassing __main__.
+- **tools/_deep7.py (10/10)**: node --check on inline script, app.py AST parse, live no-MCP degrade verified via Playwright, Escape-cancel live-tested (v2 stays, no side effect), cd independence proven.
+- Bundle freshness verified: src rebuild byte-identical to committed bundle.
+- Zero contract changes. Gates all green: pytest 51 / probes 42 (d4-d7 = 10+15+7+10) / CLI 19/19 / browser 20/20.
+
 ## 2026-10-20 13:26 - Lead deep-debug round 2 (delivery hardening): +20 new checks, docs truth-sync
 - **Deep4 reset/reseed integrity 10/10**: apply->reset restores byte-identical schedule snapshot (version + bookings JSON equal), reset x2 stable, post-reset replay deterministic (O1 + complete propose).
 - **Deep5 frontend polish audit 15/15**: long-text overflow guards, escapeHtml on all user/reason injections, animations + prefers-reduced-motion, hover/active on buttons, no private-use glyphs, 780px panels stack vertically with zero horizontal overflow (verified live via Playwright), rapid-refresh no JS errors.
