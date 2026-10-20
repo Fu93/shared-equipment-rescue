@@ -9,6 +9,7 @@ and an async client callback (spike5 evidence).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -52,6 +53,18 @@ mcp = FastMCP(
     stateless_http=False,
     json_response=False,
 )
+
+
+# --------------------------------------------------------------------------
+# audit logging (Phase 1): additive only — never touches tool payloads
+# --------------------------------------------------------------------------
+log = logging.getLogger("ser.server")
+if not log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    log.addHandler(_h)
+    log.setLevel(os.environ.get("SER_LOG_LEVEL", "INFO").upper())
+    log.propagate = False
 
 
 class _State:
@@ -220,6 +233,7 @@ async def _schedule_get_impl(
     p = _principal(ctx)
     version = dbm.get_version()
     if p is None:
+        log.info("call schedule_get unit=%s date=%s actor=- status=forbidden", unit_id, date)
         return ScheduleGetResult(
             status="forbidden",
             schedule_version=version,
@@ -387,6 +401,7 @@ async def _schedule_get_impl(
         "bookings": [b.model_dump() for b in bookings],
         "open_outages": [o.model_dump() for o in open_outages],
     }
+    log.info("call schedule_get unit=%s date=%s actor=%s status=ok", unit_id, date, viewer.name)
     return ScheduleGetResult(
         status="ok",
         schedule_version=version,
@@ -423,6 +438,7 @@ async def _report_outage_impl(
     p = _principal(ctx)
     version = dbm.get_version()
     if p is None or p.role != "manager":
+        log.info("call report_outage actor=- status=forbidden")
         return ReportOutageResult(
             status="forbidden",
             outage_id=None,
@@ -536,6 +552,7 @@ async def _report_outage_impl(
         except Exception:
             conn.rollback()
             raise
+        log.info("call report_outage eq=%s window=%s..%s actor=%s status=recorded outage=%s", equipment_id, start, end, p.name, outage_id)
         return ReportOutageResult(
             status="recorded",
             outage_id=outage_id,
@@ -672,6 +689,7 @@ async def _propose_impl(
             )
         existing = dbm.proposed_plan_for(outage_id, schedule_version, conn)
         if existing is not None:
+            log.info("call propose outage=%s actor=%s status=proposed idempotent plan=%s", outage_id, p.name, existing["id"])
             changes_j, unresolved_j = _plan_json(existing)
             return ProposeResult(
                 status="proposed",
@@ -722,6 +740,7 @@ async def _propose_impl(
         except Exception:
             conn.rollback()
             raise
+        log.info("call propose outage=%s actor=%s status=proposed plan=%s version=%d", outage_id, p.name, plan_id, current)
         return ProposeResult(
             status="proposed",
             plan_id=plan_id,
@@ -851,6 +870,7 @@ async def _apply_impl(
             elicited = False
             _elicitation_error = exc
 
+        log.info("call apply plan=%s actor=%s elicited=%s confirmed=%s", plan_id, p.name, elicited, confirmed)
         if not (elicited and confirmed):
             detail = "elicitation declined" if elicited else "elicitation not supported by client"
             return ApplyResult(
@@ -877,6 +897,7 @@ async def _apply_impl(
             conn.commit()
         except Exception as exc:
             conn.rollback()
+            log.error("apply plan=%s actor=%s rollback: %s", plan_id, p.name, exc)
             return ApplyResult(
                 status="apply_failed",
                 plan_id=plan_id,
@@ -884,6 +905,7 @@ async def _apply_impl(
                 new_version=current,
                 message=f"transaction rolled back: {exc}",
             )
+        log.info("call apply plan=%s actor=%s status=applied new_version=%s", plan_id, p.name, new_version)
         return ApplyResult(
             status="applied",
             plan_id=plan_id,
@@ -938,6 +960,7 @@ async def reset_demo_data(ctx: Context = None) -> ResetResult:
             message=_forbidden_ctx(version) if p is None else "manager role required",
         )
     _reseed()
+    log.info("call reset actor=%s status=reset", p.name)
     return ResetResult(
         status="reset",
         schedule_version=1,
