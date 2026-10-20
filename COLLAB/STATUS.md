@@ -1,3 +1,8 @@
+## 2026-10-20 12:05 — Lead（巡檢 round 2 · regen 確定性 + 惡意輸入面）
+- regen 確定性：tools/gen_contracts.py + gen_examples.py 重跑 → git 零 diff（byte-stable ✅）。
+- 惡意/畸形輸入探測：bad-JSON、no-Accept、1MB 大body、錯誤 Content-Type 全部被 MCP SDK/代理正確拒絕（406/400），無 crash，事後 health 200。
+- Partner 仍無動工跡象（INBOX 416B 不變）。
+
 # STATUS — 共享專案狀態（Lead/Partner 都可編輯，最後更新者標註）
 
 ## 2026-10-20 11:50 — Lead（穩定度巡檢 done · commit `c92900c`）
