@@ -80,7 +80,7 @@ async def proxy_mcp(request: Request, path: str = "") -> Response:
     )
     try:
         upstream = await client.send(req, stream=True)
-    except httpx.ConnectError:
+    except httpx.TransportError:  # ConnectError, ReadError, WriteError, etc.
         return Response(
             content='{"jsonrpc":"2.0","id":null,"error":{"code":-32001,'
             '"message":"MCP server unreachable - start it with \\"python -m mcp_server\\" on :8765"}}',
