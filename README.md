@@ -97,9 +97,11 @@ Browser (web/)                MCP host/agent (Bedrock or any MCP client)      Th
 ## Browser demo (web/)
 
 ```bash
-python -X utf8 -m mcp_server            # MCP server on http://127.0.0.1:8765/mcp
+python -X utf8 tools/dev_server2.py     # MCP server on http://127.0.0.1:8765/mcp (fresh temp DB each boot)
 cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080
 ```
+
+Or run the MCP server against a persistent DB file: `python -X utf8 -m mcp_server`.
 
 `web/` is part of this repo (an MCP Streamable-HTTP client UI): FastAPI serves the
 static client and same-origin-proxies `/mcp` to the MCP server, streaming `GET /mcp`

@@ -1,3 +1,9 @@
+## 2026-10-20 14:21 - Lead polish round 4 (UI memory bounds + audit probe): deep8 6/6
+- **web/static/index.html**: dev console capped at 200 entries, chat at 150 (oldest dropped) - long demo sessions / recording takes can no longer bloat the DOM.
+- **README.md**: quickstart now leads with `python -X utf8 tools/dev_server2.py` (one-command fresh-DB boot); persistent `-m mcp_server` noted as alternative.
+- **tools/_deep8.py (6/6)**: dev-console bound under 120x load, chat bound, README existence check, **audit log line verified in-process** (G4: `call schedule_get ... actor=Facility Manager status=ok` via stderr capture + impl call), escape/confirm regression intact.
+- Gates all green: pytest 51 / probes 48 (d4-d8 = 10+15+7+10+6) / CLI 19/19 / browser 20/20. Zero contract changes.
+
 ## 2026-10-20 14:12 - Lead polish round 3 (frontend/backend resilience): 4 hardening fixes + deep7 10/10
 - **web/static/index.html**: (1) boot failure now degrades gracefully - no more silent "Connecting..." when :8765 is down; (2) safeCall() wraps all 7 tool-call sites, transport/SDK errors become transport_error results handled per-flow (zero unhandled rejections); (3) confirm card: Escape = cancel (decline, zero side effect), role=dialog + aria-modal + auto-focus.
 - **web/app.py**: static paths are now absolute (locdir-independent import), app.state mcp_host/port fallback for uvicorn starts bypassing __main__.

@@ -323,13 +323,19 @@
                 (status ? '<span class="mcp-status">' + status + '</span>' : '') +
                 (note ? '<br><span class="mcp-note">' + escapeHtml(note) + '</span>' : '');
             $('mcpLogs').prepend(entry);
+            // Bound the dev console: drop oldest entries beyond 200 (long demo sessions).
+            const logs = $('mcpLogs');
+            while (logs.children.length > 200) logs.removeChild(logs.lastChild);
         }
         function addMessage(text, type = 'ai') {
             const msg = document.createElement('div');
             msg.className = 'message ' + type + '-message';
             msg.textContent = text;
-            $('chatMessages').appendChild(msg);
-            $('chatMessages').scrollTop = $('chatMessages').scrollHeight;
+            const chat = $('chatMessages');
+            chat.appendChild(msg);
+            // Bound the chat: reveal the newest 150 messages (long demo sessions).
+            while (chat.children.length > 150) chat.removeChild(chat.firstChild);
+            chat.scrollTop = chat.scrollHeight;
         }
         function escapeHtml(sx) {
             return String(sx == null ? '' : sx).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
