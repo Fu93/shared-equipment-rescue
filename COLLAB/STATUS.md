@@ -1,3 +1,8 @@
+## 2026-10-20 12:40 — Lead（巡檢 round 3 · 身分隔离）
+- 並發身分隔离探測：同時兩個 bearer session（tok-manager / tok-chen）各自 schedule_get → viewer 逐一正確（Priya / Chen）、訂位數一致、無 cross-session 洩漏。identity 純由 header token 決定 ✅。
+- 暫存探針已清（web/_soak.py、web/_ident_probe.py）。工作樹乾淨。
+- Partner 自 10:54 backup 後零動作（INBOX 416B 不變）。
+
 ## 2026-10-20 12:05 — Lead（巡檢 round 2 · regen 確定性 + 惡意輸入面）
 - regen 確定性：tools/gen_contracts.py + gen_examples.py 重跑 → git 零 diff（byte-stable ✅）。
 - 惡意/畸形輸入探測：bad-JSON、no-Accept、1MB 大body、錯誤 Content-Type 全部被 MCP SDK/代理正確拒絕（406/400），無 crash，事後 health 200。
