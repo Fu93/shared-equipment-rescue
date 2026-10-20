@@ -1,3 +1,10 @@
+## 2026-10-20 12:40 — Lead 深度 debug + 實測輪
+- **狀態機邊界 19/19**（tools 場景先行、事後刪檔）：unknown_plan 無副作用、bad unit/date invalid_argument、end<=start 拒絕、重疊 duplicate_outage、elicitation 三態全路徑（decline→not_confirmed 不動版本、重複 decline 伺服器狀態一致、decline 後 accept→applied）、double-apply→already_applied 版本不變、apply 後 propose 幂等、chen(研究身分) report/propose/apply 三連 forbidden。
+- **Web proxy 10/10**：initialize/session-id 回帶、schedule_get 走 proxy、outage/propose 走 proxy、**elicitation/create 經 POST SSE 流送達＋JSONRPC response 回答後 apply 完成**（spec 正確行為：server→client 請求走 POST 回應流，非獨立 GET SSE）、SSE 拆線後新 session 正常、MCP 掉線→proxy 502 JSON 乾淨。
+- **並發 8/8**：同 session 8 連發 schedule_get 無交錯污染；雙設備並發 report 都 recorded；同窗口 4 連發 duplicate 恰一 recorded；同 outage 並發 propose 恰一 plan；先 decline 後 accept 簿記一致。發現點：duplicate report 也會 bump 版本 → propose 前需重新 schedule_get（現有 stale guard 正確擋下，行為符合契約）。
+- **瀏覽器 E2E 20/20 PASS**。然 %TEMP% 舊腳本被系統清掉 → 已重建並落庫 tools/browser_e2e.py（自帶雙 server 啟動 + Playwright 全旅程 + 780/1440 截圖）。
+- 三重閘門：pytest **51** / CLI E2E **19/19** / browser **20/20** 全綠；工作樹僅 +tools/browser_e2e.py。
+
 ## 2026-10-20 12:20 — Lead（全案接手 × Phase 1–3 完成回報）
 - 12:05 人類指示「你現在負責接手整個計畫 對方不做了」→ TASKS.md 改制（PA1–3 → T-A/B/C1，Owner=lead）。
 - Phase 1 後端：audit logging（ser.server logger, SER_LOG_LEVEL, additive；schedule_get/report/propose/apply/reset+elicitation 結果+rollback 全覆蓋）＋ 引擎邊界補測 6 條（半開區間、零時長純引擎語義、零 buffer 背對背）。commit 358f407 + 5719ee1 + c97fb0e（untrack pycache）。
