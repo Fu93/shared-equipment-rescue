@@ -17,6 +17,14 @@ import sys
 import tempfile
 import time
 
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = "2026-10-20"
@@ -31,10 +39,10 @@ def boot(webdir_workdir, mcp_db, env_extra=None):
     env = dict(os.environ)
     env["SER_DB_PATH"] = mcp_db
     mcp = subprocess.Popen([sys.executable, "-X", "utf8", os.path.join(ROOT, "tools", "dev_server2.py"), mcp_db],
-                           env=env, creationflags=0x08000000,
+                           env=env, **_popen_kwargs(),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     web = subprocess.Popen([sys.executable, "-X", "utf8", os.path.join(ROOT, "web", "app.py"), "--port", "8080"],
-                           cwd=webdir_workdir, creationflags=0x08000000,
+                           cwd=webdir_workdir, **_popen_kwargs(),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     web.cwd_workdir = webdir_workdir
     import httpx
@@ -148,7 +156,7 @@ async def main():
 
     # ---- H2: web WITHOUT mcp -> friendly degrade ----
     web2 = subprocess.Popen([sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
-                            cwd=os.path.join(ROOT, "web"), creationflags=0x08000000,
+                            cwd=os.path.join(ROOT, "web"), **_popen_kwargs(),
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         time.sleep(3)

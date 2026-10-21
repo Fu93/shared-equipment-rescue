@@ -33,6 +33,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
+
 from mcp import ClientSession  # noqa: E402
 from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
 
@@ -118,14 +126,14 @@ def live_stack():
                             stderr=open(os.path.join(tempfile.gettempdir(),
                                                      f"ser_webproxy_mcp_{os.getpid()}.err.log"), "w",
                                         encoding="utf-8"),
-                            creationflags=0x08000000)
+                            **_popen_kwargs())
     out = open(os.path.join(tempfile.gettempdir(),
                             f"ser_web_proxy_out_{os.getpid()}.log"), "w+",
                encoding="utf-8")
     web = subprocess.Popen(
         [sys.executable, "-X", "utf8", "app.py", "--port", str(WEB_PORT),
          "--mcp-port", str(MCP_PORT)],
-        cwd=os.path.join(ROOT, "web"), env=env, creationflags=0x08000000,
+        cwd=os.path.join(ROOT, "web"), env=env, **_popen_kwargs(),
         stdout=out, stderr=subprocess.STDOUT,
     )
     try:

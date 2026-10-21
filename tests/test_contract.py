@@ -6,6 +6,7 @@ _gen_contracts.py / _gen_examples.py and review the diff deliberately.
 """
 
 import asyncio
+import inspect
 import json
 import os
 import sys
@@ -125,9 +126,32 @@ async def test_all_eight_tools_present():
     }
 
 
+def _canonical_description(text):
+    """Docstring text that does not depend on the Python version.
+
+    Python 3.13 dedents function docstrings in the compiler. Python 3.11 and
+    3.12 keep the source indentation in ``__doc__``. FastMCP copies ``__doc__``
+    into the tool description and does not run ``inspect.cleandoc`` itself, so
+    ``schedule_audit_get`` (the only multi-line tool docstring) gains or loses
+    that indent. The 3.13 string also keeps a trailing newline that
+    ``inspect.cleandoc`` strips. The sentences are unchanged.
+
+    ``inspect.cleandoc`` of the saved (pre-3.13) description equals
+    ``inspect.cleandoc`` of the 3.13 description. No single raw string matches
+    both interpreters, so the contract file is left as the author saved it.
+    Rewriting it to either raw string would make the other Python fail an
+    exact compare, and would record an interpreter artifact as a wording change.
+    """
+    return inspect.cleandoc(text or "")
+
+
 @pytest.mark.asyncio
 async def test_tool_schemas_exactly_match_contract(contract):
-    """Schema equality is the frozen-conromise: exact match, no extra keys."""
+    """Schema equality is the frozen contract: exact match, no extra keys.
+
+    Descriptions are compared after ``inspect.cleandoc`` so Python 3.11 and
+    3.13 agree. Every other field is still compared exactly.
+    """
     tools = await mcp.list_tools()
     live = {
         t.name: {
@@ -141,7 +165,11 @@ async def test_tool_schemas_exactly_match_contract(contract):
     frozen = contract["tools"]
     assert set(live) == set(frozen)
     for name in frozen:
-        assert live[name] == frozen[name], f"tool {name} drifted from contract"
+        live_item = dict(live[name])
+        frozen_item = dict(frozen[name])
+        live_item["description"] = _canonical_description(live_item.get("description"))
+        frozen_item["description"] = _canonical_description(frozen_item.get("description"))
+        assert live_item == frozen_item, f"tool {name} drifted from contract"
 
 
 # --- example deep equality --------------------------------------------------

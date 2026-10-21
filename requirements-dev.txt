@@ -1,0 +1,11 @@
+# Test dependencies for a clean clone. Runtime packages stay in requirements.txt.
+-r requirements.txt
+
+pytest>=8.3
+pytest-asyncio>=0.24
+jsonschema>=4.21
+
+# Imported by tests/test_video_walk.py and tests/test_screenshots_current.py.
+# Those tests skip when no browser can launch. Install a browser with:
+#   python -m playwright install chromium
+playwright>=1.49

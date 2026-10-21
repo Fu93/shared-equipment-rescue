@@ -1,7 +1,12 @@
 """Generate contracts/tools.json from the live FastMCP tool registry.
 
-Run from repo root:  python _gen_contracts.py
+Run from repo root:  python tools/gen_contracts.py
 Writes contracts/tools.json (inputSchema + outputSchema per tool).
+
+Do not "fix" the indent in schedule_audit_get's saved description.
+Python 3.13 dedents that docstring; tests/test_contract.py compares
+descriptions with inspect.cleandoc so 3.11 and 3.13 share one contract.
+Regenerating on 3.13 rewrites only that incidental whitespace.
 """
 
 import asyncio

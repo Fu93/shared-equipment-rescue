@@ -18,6 +18,66 @@
 
 Amazon "Build, Ship, Shape" hackathon entry — **Alexa+ primary track** + **AWS Builder challenge** (Amazon Bedrock).
 
+The page served from `web/` is a **simulated Alexa+ experience**: a browser MCP client, not a physical Alexa device.
+
+## Testing instructions for judges
+
+Clean-clone setup, then the MCP server (spec 2025-11-25, Streamable HTTP) and the web client. Open <http://127.0.0.1:8080>. That page is the simulated Alexa+ experience. It sends `initialize`, `tools/list`, and `tools/call` over Streamable HTTP. It is not connected to the Alexa+ developer console.
+
+### Clean clone
+
+```bash
+git clone https://github.com/Fu93/shared-equipment-rescue.git
+cd shared-equipment-rescue
+python -m venv .venv
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+Activate the virtualenv before the later commands. Linux and macOS: `source .venv/bin/activate`. Windows: `.venv\Scripts\activate`.
+
+`requirements.txt` is the runtime install. `requirements-dev.txt` adds `pytest`, `pytest-asyncio`, `jsonschema`, and `playwright`. The demo tokens are fake.
+
+On Windows, start Python with `python -X utf8` so pytest output stays UTF-8. That flag is optional on Linux and macOS.
+
+### Start the MCP server and the web client
+
+Use two terminals, from the repository root, with the virtualenv active. Do not run `python -m mcp_server` in a third terminal at the same time: both servers bind port 8765.
+
+```bash
+python tools/dev_server2.py
+```
+
+That process is the MCP server: spec 2025-11-25, Streamable HTTP, at `http://127.0.0.1:8765/mcp`, with a fresh temporary database on each boot. `python -m mcp_server` is the same server pointed at a persistent `server.db`.
+
+```bash
+cd web && python app.py --port 8080
+```
+
+Open <http://127.0.0.1:8080>. The right-hand MCP protocol console should show a connection and protocol `2025-11-25`. The default identity is Facility Manager (`tok-manager`).
+
+### Golden path
+
+1. **Report an outage.** In the chat box send `Confocal A is down until 4pm`, or press the button **Report outage (Confocal A 10:00–16:00)**. The version badge becomes `v2`, an outage banner appears, and bookings B2 and B4 are marked `blocked`. The page then proposes a replan on its own.
+2. **Review the proposed replan.** The notebook lists two moves: Chen to Confocal B 11:15–12:15, and Wang to Confocal A 16:00–17:00, each with a machine-readable reason. The board shows pending plan P1.
+3. **Cancel, then Confirm.** Press **Apply P1**. The confirmation card is a real MCP `elicitation/create`. Only a click answers it. Press **Cancel**. The badge stays `v2` and no booking moves. Press **Apply P1** again, then **Confirm**. The badge becomes `v3` and the moves are on the board.
+4. **Researcher view.** Under **Acting as**, choose Wang (`tok-wang`). Wang's own 16:00 slot stays visible. Other bookings on Confocal B show `Occupied`.
+5. **Audit log.** Open **Audit log**. The chain badge should show an intact chain. Under `tok-wang` the trail is the researcher view (that user's actions plus public events). Switch back to `tok-manager` to see every row.
+
+### Run the tests
+
+```bash
+python -m pytest tests/ -q
+```
+
+Measured on Linux after `pip install -r requirements-dev.txt`, with the Playwright package installed and no Playwright browser installed: **68 passed**, 2 skipped, on CPython 3.11.17, 3.12.3, and 3.13.16. The two skips are `test_video_walk.py` and `test_screenshots_current.py` (`python -m playwright install chromium` if you want those two to run). No pass count is claimed for that extra browser install; it was not measured here.
+
+### What is real, and what is simulated
+
+**Real in this repository:** the MCP server (`mcp==1.30.0`, spec 2025-11-25, Streamable HTTP); this web page as an MCP client, including server-initiated elicitation; the deterministic replan engine; SQLite, monotonic `schedule_version`, idempotent `plan_id`, and the hash-chained audit log. The demo tokens (`tok-manager`, `tok-chen`, `tok-wang`, `tok-li`) are intentional fakes.
+
+**Simulated:** the web UI is a simulated Alexa+ experience. The bookings, people, and two confocal microscopes are synthetic data for the demo day 2026-10-20 (Europe/London). Narration uses the scripted fallback unless `SER_LLM_MODE` is set and AWS credentials are present. `mcp_server/llm.py` contains an optional Amazon Bedrock `Converse` call, but `boto3` is not installed by `requirements.txt`, and a live Bedrock call was not run for this change. Do not treat that path as verified.
+
 ## What it does
 
 When a confocal microscope (or any shared instrument) goes down mid-day, a manager normally rebooks six papers by hand. This server does the whole recovery loop over MCP:
@@ -142,14 +202,14 @@ Identity comes **only** from the per-request header — never from tool argument
 ## Architecture
 
 ```
-Browser (web/)                MCP host/agent (Bedrock or any MCP client)      This repo
+Simulated Alexa+ (web/)                MCP host/agent (Bedrock or any MCP client)      This repo
 ┌────────────────┐            ┌──────────────────────────┐   Streamable      ┌─────────────────────────┐
 │ schedule cards │  ──MCP──▶  │ agent loop, tool calls,  │  ──HTTP+MCP──▶    │ FastMCP server           │
 │ elicitation UI │            │ elicitation prompt       │   127.0.0.1:8765  │  engine + SQLite + audit │
 └────────────────┘            └──────────────────────────┘                   └─────────────────────────┘
 ```
 
-## Browser demo (web/)
+## Browser demo (web/) — simulated Alexa+ experience
 
 ```bash
 python -X utf8 tools/dev_server2.py     # MCP server on http://127.0.0.1:8765/mcp (fresh temp DB each boot)
@@ -158,7 +218,7 @@ cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080 (an
 
 Or run the MCP server against a persistent DB file: `python -X utf8 -m mcp_server`.
 
-`web/` is part of this repo (an MCP Streamable-HTTP client UI): FastAPI serves the
+This UI is the simulated Alexa+ experience. `web/` is part of this repo (an MCP Streamable-HTTP client UI): FastAPI serves the
 static client and same-origin-proxies `/mcp` to the MCP server, streaming `GET /mcp`
 SSE chunk-by-chunk so server-initiated `elicitation/create` reaches the browser live.
 The apply confirmation card is answered only by a human click — the demo identity is
@@ -207,8 +267,10 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 70 passed
+python -X utf8 -m pytest tests/ -q
 ```
+
+Measured on Linux (CPython 3.11.17, 3.12.3, and 3.13.16; Playwright package installed; no Playwright browser): **68 passed**, 2 skipped.
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
 - `test_engine_edges.py` (6): boundary edges — half-open intervals, zero-duration, zero-buffer adjacency, unknown equipment.
@@ -245,7 +307,7 @@ silently go stale.
 
 - `docs/friction-log.md` — 7 hard-won findings (SSE-only elicitation, async-callback requirement, `Context.request_context.request.headers`, engine visibility fix, `SER_FROZEN_NOW` clock freeze).
 - `docs/product-feedback.md` — MCP-ecosystem observations (elicitation gaps, json_response hazard).
-- `COLLAB/CONTRACT-FROZEN.md` — the partner contract; `COLLAB/OUTBOX.md` has the client wiring guide.
+- `docs/dev-notes/COLLAB/CONTRACT-FROZEN.md` — the partner contract; `docs/dev-notes/COLLAB/OUTBOX.md` has the client wiring guide. Internal notes live in `docs/dev-notes/`. The ad-hoc probes that used to be `tools/_deep4.py` through `tools/_deep8.py` live in `archive/`.
 - `tools/check_readme_i18n.py` — keeps this file's two language sections in sync (code blocks, images, identifiers, numbers). Run it after editing either side; `tests/test_readme_i18n.py` runs it as part of the suite.
 
 ## Tech choices
@@ -269,6 +331,66 @@ MIT — see LICENSE. Synthetic demo data; not production-hardened.
 **共用儀器故障復原的 AI 助手 —— 一個自架的 MCP 2025-11-25 伺服器：偵測故障會影響哪些預約、提出通過規則檢查的重排方案，而且在人類明確確認之前，絕不寫入任何變更（MCP elicitation，人類在環）。**
 
 Amazon「Build, Ship, Shape」黑客松參賽作品 —— **Alexa+ 主賽道** ＋ **AWS Builder 挑戰**（Amazon Bedrock）。
+
+`web/` 提供的頁面是 **simulated Alexa+ experience**（模擬的 Alexa+ 體驗）：瀏覽器裡的 MCP 客戶端，不是實體 Alexa 裝置。
+
+## 評審測試說明
+
+以下是乾淨 clone 的步驟，然後啟動 MCP 伺服器（spec 2025-11-25，Streamable HTTP）與 web client。開啟 <http://127.0.0.1:8080>。那個頁面就是 simulated Alexa+ experience。它透過 Streamable HTTP 送出 `initialize`、`tools/list`、`tools/call`。它沒有連到 Alexa+ developer console。
+
+### 乾淨 clone
+
+```bash
+git clone https://github.com/Fu93/shared-equipment-rescue.git
+cd shared-equipment-rescue
+python -m venv .venv
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+後續指令前先啟動 virtualenv。Linux 與 macOS：`source .venv/bin/activate`。Windows：`.venv\Scripts\activate`。
+
+`requirements.txt` 是執行期安裝。`requirements-dev.txt` 另外安裝 `pytest`、`pytest-asyncio`、`jsonschema`、`playwright`。示範 token 是假的。
+
+Windows 請用 `python -X utf8` 啟動，pytest 輸出才會維持 UTF-8。這個旗標在 Linux 與 macOS 可選。
+
+### 啟動 MCP 伺服器與 web client
+
+從儲存庫根目錄開兩個終端機，virtualenv 要在作用中。不要同時再開第三個終端機跑 `python -m mcp_server`：兩個伺服器都會綁 port 8765。
+
+```bash
+python tools/dev_server2.py
+```
+
+這個行程就是 MCP 伺服器：spec 2025-11-25、Streamable HTTP、位址 `http://127.0.0.1:8765/mcp`，每次啟動都用一份新的暫存資料庫。`python -m mcp_server` 是同一個伺服器，資料庫改為持久的 `server.db`。
+
+```bash
+cd web && python app.py --port 8080
+```
+
+開啟 <http://127.0.0.1:8080>。右側 MCP protocol console 應顯示已連線，協定為 `2025-11-25`。預設身分是 Facility Manager（`tok-manager`）。
+
+### 主要示範路徑
+
+1. **回報故障。** 在對話框送出 `Confocal A is down until 4pm`，或按 **Report outage (Confocal A 10:00–16:00)**。版本徽章變成 `v2`，出現故障橫幅，預約 B2 與 B4 標成 `blocked`。頁面接著會自己提出重排。
+2. **看提出的重排。** 筆記本列出兩筆移動：Chen 到 Confocal B 11:15–12:15，Wang 到 Confocal A 16:00–17:00，每筆都有機器可讀的原因。看板顯示待處理方案 P1。
+3. **先 Cancel，再 Confirm。** 按 **Apply P1**。確認卡是真正的 MCP `elicitation/create`。只有點擊能回答。按 **Cancel**。徽章維持 `v2`，沒有預約被搬走。再按一次 **Apply P1**，然後 **Confirm**。徽章變成 `v3`，移動出現在看板上。
+4. **研究員視角。** 在 **Acting as** 選擇 Wang（`tok-wang`）。Wang 自己的 16:00 時段仍看得到。Confocal B 上其他人的預約顯示 `Occupied`。
+5. **審計紀錄。** 打開 **Audit log**。鏈徽章應顯示鏈是完整的。在 `tok-wang` 之下，軌跡是研究員視角（該使用者自己的操作加上公開事件）。切回 `tok-manager` 可看到每一列。
+
+### 執行測試
+
+```bash
+python -m pytest tests/ -q
+```
+
+在 Linux 上，於 `pip install -r requirements-dev.txt` 之後量測（已安裝 Playwright 的 Python 套件，未安裝 Playwright 瀏覽器）：CPython 3.11.17、3.12.3、3.13.16 都是 **68 passed**、2 skipped。兩筆 skip 是 `test_video_walk.py` 與 `test_screenshots_current.py`（若要跑這兩筆，執行 `python -m playwright install chromium`）。這裡沒有宣稱那個額外瀏覽器安裝後的通過數；該安裝沒有量測。
+
+### 什麼是真的，什麼是模擬的
+
+**這個儲存庫裡真的有：** MCP 伺服器（`mcp==1.30.0`、spec 2025-11-25、Streamable HTTP）；這個網頁作為 MCP 客戶端，含伺服器發起的 elicitation；確定性的重排引擎；SQLite、單調的 `schedule_version`、冪等的 `plan_id`，以及雜湊鏈審計紀錄。示範 token（`tok-manager`、`tok-chen`、`tok-wang`、`tok-li`）是故意的假 token。
+
+**模擬的：** web UI 是 simulated Alexa+ experience。預約、人物，以及兩台共軛焦顯微鏡，都是示範日 2026-10-20（Europe/London）的合成資料。除非設定 `SER_LLM_MODE` 並提供 AWS 憑證，否則旁白走 scripted fallback。`mcp_server/llm.py` 裡有一個可選的 Amazon Bedrock `Converse` 呼叫，但 `requirements.txt` 不會安裝 `boto3`，而且這次變更沒有跑過一次即時的 Bedrock 呼叫。不要把那條路徑當成已驗證。
 
 ## 它在做什麼
 
@@ -383,14 +505,14 @@ async with streamablehttp_client("http://127.0.0.1:8765/mcp", headers=headers) a
 ## 架構
 
 ```
-Browser (web/)                MCP host/agent (Bedrock or any MCP client)      This repo
+Simulated Alexa+ (web/)                MCP host/agent (Bedrock or any MCP client)      This repo
 ┌────────────────┐            ┌──────────────────────────┐   Streamable      ┌─────────────────────────┐
 │ schedule cards │  ──MCP──▶  │ agent loop, tool calls,  │  ──HTTP+MCP──▶    │ FastMCP server           │
 │ elicitation UI │            │ elicitation prompt       │   127.0.0.1:8765  │  engine + SQLite + audit │
 └────────────────┘            └──────────────────────────┘                   └─────────────────────────┘
 ```
 
-## 瀏覽器 demo（web/）
+## 瀏覽器 demo（web/）—— simulated Alexa+ experience
 
 ```bash
 python -X utf8 tools/dev_server2.py     # MCP server on http://127.0.0.1:8765/mcp (fresh temp DB each boot)
@@ -399,7 +521,7 @@ cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080 (an
 
 也可以讓 MCP server 對著持久化的 DB 檔跑：`python -X utf8 -m mcp_server`。
 
-`web/` 是這個 repo 的一部分（本身是一個 MCP Streamable-HTTP 客戶端 UI）：FastAPI 提供靜態頁，並以同源代理把 `/mcp` 轉到 MCP server，`GET /mcp` 的 SSE 會逐塊轉發，所以伺服器發起的 `elicitation/create` 能即時抵達瀏覽器。套用確認卡只由人類點擊回答 —— demo 身分只承載在 `Authorization: Bearer <token>` 標頭裡，絕不放在工具參數中。
+這個 UI 就是 simulated Alexa+ experience。`web/` 是這個 repo 的一部分（本身是一個 MCP Streamable-HTTP 客戶端 UI）：FastAPI 提供靜態頁，並以同源代理把 `/mcp` 轉到 MCP server，`GET /mcp` 的 SSE 會逐塊轉發，所以伺服器發起的 `elicitation/create` 能即時抵達瀏覽器。套用確認卡只由人類點擊回答 —— demo 身分只承載在 `Authorization: Bearer <token>` 標頭裡，絕不放在工具參數中。
 
 ## 強化（OWASP MCP Security Cheat Sheet）
 
@@ -416,8 +538,10 @@ Tier 3 加項：每一筆審計紀錄還會存一份事件的**結構化 JSON �
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 70 passed
+python -X utf8 -m pytest tests/ -q
 ```
+
+在 Linux 上量測（CPython 3.11.17、3.12.3、3.13.16；已安裝 Playwright 套件；未安裝 Playwright 瀏覽器）：**68 passed**、2 skipped。
 
 - `test_engine.py`（12）：時段搜尋、緩衝語意、權限、B4 範圍的引擎修正、故障可見於搜尋的回歸，以及選擇鍵的平手規則（最早開始者勝；完全平手時留在原設備）。
 - `test_engine_edges.py`（6）：邊界 —— 半開區間、零時長、零緩衝相鄰、未知設備。
@@ -446,7 +570,7 @@ python -X utf8 tools/shoot_screenshots.py
 
 - `docs/friction-log.md` —— 7 條得來不易的結論（只能用 SSE 的 elicitation、callback 必須 async、`Context.request_context.request.headers`、引擎可見性修正、`SER_FROZEN_NOW` 凍結時鐘）。
 - `docs/product-feedback.md` —— 對 MCP 生態的觀察（elicitation 的落差、json_response 的陷阱）。
-- `COLLAB/CONTRACT-FROZEN.md` —— 給夥伴的契約；`COLLAB/OUTBOX.md` 有客戶端接線指南。
+- `docs/dev-notes/COLLAB/CONTRACT-FROZEN.md` —— 給夥伴的契約；`docs/dev-notes/COLLAB/OUTBOX.md` 有客戶端接線指南。內部筆記在 `docs/dev-notes/`。原本的 `tools/_deep4.py` 到 `tools/_deep8.py` 探針現在在 `archive/`。
 - `tools/check_readme_i18n.py` —— 確保本檔中英兩節內容一致（程式碼區塊、圖片、識別字、數字）。改動任一邊後請執行；`tests/test_readme_i18n.py` 會把它納入測試套件。
 
 ## 技術選型

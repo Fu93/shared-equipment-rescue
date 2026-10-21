@@ -28,6 +28,14 @@ import socket
 import subprocess
 import sys
 import tempfile
+
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
 import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -76,11 +84,11 @@ async def main() -> int:
         )
     mcp = subprocess.Popen([sys.executable, "-X", "utf8", boot], cwd=ROOT, env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           creationflags=0x08000000)
+                           **_popen_kwargs())
     web = subprocess.Popen([sys.executable, "-X", "utf8", "app.py",
                             "--port", str(web_port), "--mcp-port", str(mcp_port)],
                            cwd=os.path.join(ROOT, "web"), env=env,
-                           creationflags=0x08000000,
+                           **_popen_kwargs(),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     taken = []
     try:
