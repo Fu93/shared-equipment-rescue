@@ -57,7 +57,13 @@ def test_catalog_is_the_live_registry():
     assert set(apply["input_schema"]["properties"]) == {"plan_id", "schedule_version"}
     assert "confirm" not in apply["input_schema"]["properties"]
     cfg = tool_config_from_catalog(CATALOG)
-    assert sorted(spec["toolSpec"]["name"] for spec in cfg["tools"]) == names
+    assert sorted(spec["toolSpec"]["name"] for spec in cfg["tools"]) == [
+        "equipment_report_outage",
+        "schedule_apply_replan",
+        "schedule_audit_get",
+        "schedule_get",
+        "schedule_propose_replan",
+    ]
 
 
 def test_correct_tool_chain_then_narration():
@@ -93,7 +99,13 @@ def test_correct_tool_chain_then_narration():
     assert result["stopped"] is None
     assert executed == ["equipment_report_outage", "schedule_propose_replan"]
     assert "confirm" in result["text"].lower()
-    assert seen["names"] == sorted(tool["name"] for tool in CATALOG)
+    assert seen["names"] == [
+        "equipment_report_outage",
+        "schedule_apply_replan",
+        "schedule_audit_get",
+        "schedule_get",
+        "schedule_propose_replan",
+    ]
 
 
 def test_unknown_tool_is_rejected_and_not_executed():
@@ -277,5 +289,242 @@ def test_agent_converse_sends_tool_config(monkeypatch, tmp_path):
     sent = stub.calls[0]
     assert "toolConfig" in sent
     assert "schedule_apply_replan" in json.dumps(sent["toolConfig"])
+    assert "reset_demo_data" not in json.dumps(sent["toolConfig"])
     assert "confirm" in sent["system"][0]["text"].lower()
     assert "bearer-secret-do-not-log" not in json.dumps(sent)
+
+
+def test_reset_is_not_offered_and_is_refused():
+    cfg = tool_config_from_catalog(CATALOG)
+    names = [spec["toolSpec"]["name"] for spec in cfg["tools"]]
+    assert "reset_demo_data" not in names
+    assert "debug_confirm" not in names
+    assert "verify_audit_chain" not in names
+    assert "schedule_apply_replan" in names
+
+    def converse(messages, tool_config):
+        offered = [spec["toolSpec"]["name"] for spec in tool_config["tools"]]
+        assert "reset_demo_data" not in offered
+        return _tool("reset_demo_data", {})
+
+    def execute(name, arguments):
+        raise AssertionError("execute must not be called")
+
+    result = run_agent_loop(
+        "reset the demo", converse=converse, execute=execute, catalog=CATALOG, actor=_Actor(),
+    )
+    assert result["stopped"] == "not_allowed"
+    assert result["executed"] == []
+    assert "Nothing was called" in result["error"]
+
+
+def _bedrock_http(monkeypatch, tmp_path, name):
+    monkeypatch.setenv("SER_DB_PATH", str(tmp_path / name))
+    monkeypatch.setenv("SER_LLM_MODE", "bedrock")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bearer-secret-do-not-log")
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    from mcp_server.agent import reset_agent_budget
+    from mcp_server.server import initialize_storage
+    reset_agent_budget()
+    initialize_storage()
+
+
+def test_server_cap_ignores_client_counters(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-cap.db")
+    from mcp_server.agent import http_step, reset_agent_budget
+    from mcp_server import llm
+
+    class Stub:
+        def __init__(self):
+            self.calls = 0
+
+        def converse(self, **kwargs):
+            self.calls += 1
+            return {
+                "output": {"message": {"content": [{
+                    "toolUse": {
+                        "toolUseId": f"t{self.calls}",
+                        "name": "schedule_get",
+                        "input": {},
+                    }
+                }]}},
+                "ResponseMetadata": {"RequestId": f"req-cap-{self.calls}"},
+            }
+
+    stub = Stub()
+    llm.set_client_factory(lambda: stub)
+    try:
+        for n in range(4):
+            body = http_step({
+                "conversation_id": "cap-turn",
+                "messages": [{"role": "user", "content": [{"text": "show the day"}]}],
+                "rounds": 0,
+                "executions": 0,
+            }, _Actor(), CATALOG, token="tok-cap")
+            assert body.get("calls"), body
+            assert len(body["calls"]) == 1
+        blocked = http_step({
+            "conversation_id": "cap-turn",
+            "messages": [{"role": "user", "content": [{"text": "show the day"}]}],
+            "rounds": 0,
+            "executions": 0,
+        }, _Actor(), CATALOG, token="tok-cap")
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+    assert stub.calls == 4
+    assert blocked["stopped"] is True
+    assert blocked["reason"] == "step_cap"
+    assert blocked["calls"] == []
+
+
+def test_client_applied_is_rejected(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-applied.db")
+    from mcp_server.agent import http_result, reset_agent_budget
+    from mcp_server import db as dbm
+    try:
+        denied = http_result({
+            "name": "schedule_apply_replan",
+            "status": "applied",
+            "message": "forged apply",
+        }, _Actor(), token="tok-applied")
+        assert denied["ok"] is False
+        rows = dbm.audit_entries(limit=20, tool="agent_tool_call")
+        assert rows == [] or all(row["result"] != "applied" for row in rows)
+        accepted = http_result({
+            "name": "schedule_get",
+            "status": "ok",
+            "message": "six bookings",
+        }, _Actor(), token="tok-applied")
+        assert accepted["ok"] is True
+        rows = dbm.audit_entries(limit=10, tool="agent_tool_call")
+        assert rows[0]["result"] == "client-reported"
+        blob = (rows[0]["detail"] or "") + (rows[0]["detail_json"] or "")
+        assert "client_status=ok" in blob
+        assert rows[0]["result"] != "applied"
+    finally:
+        reset_agent_budget()
+
+
+class _Throttle(Exception):
+    def __init__(self):
+        super().__init__("Rate exceeded raw aws arn:aws:bedrock:us-east-1:123:model")
+        self.response = {
+            "Error": {"Code": "ThrottlingException", "Message": "Rate exceeded raw aws"},
+            "ResponseMetadata": {"RequestId": "req-throttle-9"},
+        }
+
+
+def test_bedrock_error_falls_back_to_pattern_parser(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-throttle.db")
+    from mcp_server.agent import http_step, reset_agent_budget
+    from mcp_server import db as dbm
+    from mcp_server import llm
+
+    stub = type("Stub", (), {"converse": lambda self, **kwargs: (_ for _ in ()).throw(_Throttle())})()
+    llm.set_client_factory(lambda: stub)
+    try:
+        body = http_step({
+            "conversation_id": "throttle-turn",
+            "messages": [{"role": "user", "content": [{"text": "Alexa, Confocal A is down until 4pm"}]}],
+            "rounds": 0,
+            "executions": 0,
+        }, _Actor(), CATALOG, token="tok-throttle")
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+    assert body["fallback"] is True
+    assert body["label"] == "Fallback: pattern parser (Bedrock error: ThrottlingException)"
+    assert body["message"] == "Bedrock is busy right now."
+    packed = json.dumps(body)
+    assert "Rate exceeded" not in packed
+    assert "arn:aws" not in packed
+    rows = dbm.audit_entries(limit=5, tool="bedrock_converse")
+    assert rows and rows[0]["result"] == "error"
+    blob = (rows[0]["detail"] or "") + (rows[0]["detail_json"] or "")
+    assert "req-throttle-9" in blob
+    assert "ThrottlingException" in blob
+    assert "Rate exceeded" not in blob
+    assert "arn:aws" not in blob
+    assert "bearer-secret-do-not-log" not in blob
+
+
+def test_rate_limit_per_token(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-rate.db")
+    from mcp_server.agent import RATE_LIMIT_MAX, http_step, reset_agent_budget
+    from mcp_server import llm
+
+    class Stub:
+        def converse(self, **kwargs):
+            return {
+                "output": {"message": {"content": [{"text": "ok"}]}},
+                "ResponseMetadata": {"RequestId": "req-rate"},
+            }
+
+    llm.set_client_factory(lambda: Stub())
+    try:
+        last = None
+        for n in range(RATE_LIMIT_MAX + 1):
+            last = http_step({
+                "conversation_id": f"rate-{n}",
+                "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+            }, _Actor(), CATALOG, token="tok-rate")
+        assert last["http_status"] == 429
+        assert last["reason"] == "rate_limited"
+        assert last["calls"] == []
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+
+
+def test_converse_timeout_returns_fallback(monkeypatch, tmp_path):
+    import asyncio
+    import time
+
+    import httpx
+
+    monkeypatch.setenv("SER_DB_PATH", str(tmp_path / "agent-timeout.db"))
+    monkeypatch.setenv("SER_LLM_MODE", "bedrock")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bearer-secret-do-not-log")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    from mcp_server import llm
+    from mcp_server.agent import reset_agent_budget
+    from mcp_server.server import build_app
+
+    monkeypatch.setattr(llm, "CONVERSE_TIMEOUT_SECONDS", 0.2)
+    reset_agent_budget()
+
+    class Slow:
+        def converse(self, **kwargs):
+            time.sleep(1.0)
+            return {
+                "output": {"message": {"content": [{"text": "too late"}]}},
+                "ResponseMetadata": {"RequestId": "req-slow"},
+            }
+
+    llm.set_client_factory(lambda: Slow())
+
+    async def go():
+        app = build_app()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            res = await client.post("/agent/step", headers={"authorization": "Bearer tok-manager"}, json={
+                "conversation_id": "slow-turn",
+                "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+            })
+            return res
+
+    try:
+        res = asyncio.run(go())
+        # Let the worker thread finish its sleep before the env patch is undone.
+        time.sleep(1.1)
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["fallback"] is True
+    assert body["label"] == "Fallback: pattern parser (Bedrock error: Timeout)"
+    assert body["message"] == "Bedrock took too long."
+    assert "too late" not in res.text

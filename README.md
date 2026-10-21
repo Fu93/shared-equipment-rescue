@@ -16,7 +16,7 @@
 
 **A facility manager's AI copilot for shared-instrument outage recovery — a self-hosted MCP 2025-11-25 server that detects every booking an outage breaks, proposes a rule-checked replan, and never writes a single change without explicit human confirmation (MCP elicitation, human-in-the-loop).**
 
-Amazon "Build, Ship, Shape" hackathon entry — **Alexa+ primary track** + **AWS Builder challenge** (Amazon Nova Lite via the Bedrock Converse API). The schedule sentence is narration. On the simulated page, a bounded tool loop can propose MCP calls. The engine decides every move, and the Confirm click stays human.
+Amazon "Build, Ship, Shape" hackathon entry — **Alexa+ primary track** + **AWS Builder challenge** (Amazon Nova Lite via the Bedrock Converse API). A board refresh uses the scripted sentence. On the simulated page, a bounded tool loop can propose MCP calls. The engine decides every move, and the Confirm click stays human.
 
 The page served from `web/` is a **simulated Alexa+ experience**: a browser MCP client, not a physical Alexa device.
 
@@ -74,13 +74,13 @@ Open <http://127.0.0.1:8080>. The right-hand MCP protocol console should show a 
 python -m pytest tests/ -q
 ```
 
-Measured on Linux after `pip install -r requirements-dev.txt`. On CPython 3.11.17, 3.12.3, and 3.13.16, with the Playwright browser installed (`python -m playwright install chromium`): **90 passed**, 1 skipped. Without that browser: **87 passed**, 4 skipped. Without a browser the skips are `test_video_walk.py`, `test_screenshots_current.py`, the browser half of `test_voice_hook.py`, and `test_bedrock_converse_live` (`AWS_BEARER_TOKEN_BEDROCK` was unset). With the browser, only `test_bedrock_converse_live` skipped. The narration-only commit before this tool loop, on the same Linux 3.11 and 3.13 runs, was **73 passed** with the browser and **71 passed**, 3 skipped, without it. The commit before those Bedrock tests was **70 passed** with the browser and **68 passed**, 2 skipped, without it.
+Measured on Linux after `pip install -r requirements-dev.txt`. On CPython 3.11.17, 3.12.3, and 3.13.16, with the Playwright browser installed (`python -m playwright install chromium`): **99 passed**, 1 skipped. Without that browser: **96 passed**, 4 skipped. Without a browser the skips are `test_video_walk.py`, `test_screenshots_current.py`, the browser half of `test_voice_hook.py`, and `test_bedrock_converse_live` (`AWS_BEARER_TOKEN_BEDROCK` was unset). With the browser, only `test_bedrock_converse_live` skipped. The tool-loop commit before these fixes, on the same runs, was **90 passed** with the browser and **87 passed**, 4 skipped, without it. The narration-only commit before this tool loop, on the same Linux 3.11 and 3.13 runs, was **73 passed** with the browser and **71 passed**, 3 skipped, without it. The commit before those Bedrock tests was **70 passed** with the browser and **68 passed**, 2 skipped, without it.
 
 ### What is real, and what is simulated
 
 **Real in this repository:** the MCP server (`mcp==1.30.0`, spec 2025-11-25, Streamable HTTP); this web page as an MCP client, including server-initiated elicitation; the deterministic replan engine; SQLite, monotonic `schedule_version`, idempotent `plan_id`, and the hash-chained audit log. The demo tokens (`tok-manager`, `tok-chen`, `tok-wang`, `tok-li`) are intentional fakes.
 
-**Simulated:** the web UI is a simulated Alexa+ experience, labelled Alexa+ (simulated) — MCP client. The bookings, people, and two confocal microscopes are synthetic data. The seeded day is `SER_DEMO_DATE`, or today in `SER_DEMO_TZ` (default Europe/London). The published scenario in the tests is 2026-10-20. With Bedrock off, the chat matches a few fixed phrases and labels that path Fallback: pattern parser (Bedrock off). With Bedrock on, the same chat can propose tool calls, bounded at 4 steps. Amazon Nova Lite rephrases the `schedule_get` overview either way when that call is made. The model does not decide bookings. The Confirm card stays a click.
+**Simulated:** the web UI is a simulated Alexa+ experience, labelled Alexa+ (simulated) — MCP client. The bookings, people, and two confocal microscopes are synthetic data. The seeded day is `SER_DEMO_DATE`, or today in `SER_DEMO_TZ` (default Europe/London). The published scenario in the tests is 2026-10-20. With Bedrock off, the chat matches a few fixed phrases and labels that path Fallback: pattern parser (Bedrock off). With Bedrock on, the same chat can propose tool calls, bounded at 4 steps. A board refresh does not call Bedrock. Bedrock rephrases the `schedule_get` overview only when the request sends `x-ser-narrate`. The model does not decide bookings. The Confirm card stays a click.
 
 ## What it does
 
@@ -197,23 +197,23 @@ Identity comes **only** from the per-request header — never from tool argument
 
 ## LLM layer (dual-mode, §7 of the plan)
 
-`mcp_server/llm.py` phrases the `schedule_get` sentence, and `agent_converse` proposes tool calls for the chat loop. Neither path chooses slots or moves bookings. `schedule_apply_replan` still waits for the human Confirm card. **No AWS credentials? The demo still runs on the scripted sentence and the pattern parser.**
+`mcp_server/llm.py` can phrase the `schedule_get` sentence, and `agent_converse` proposes tool calls for the chat loop. Neither path chooses slots or moves bookings. `schedule_apply_replan` still waits for the human Confirm card. **No AWS credentials? The demo still runs on the scripted sentence and the pattern parser.**
 
-Inside `schedule_get`, Bedrock is attempted only after the engine has already built the bookings, the outage, and any pending plan. That call rephrases the sentence `script_schedule_overview` would return. The tool loop is separate, and it runs only when the page's Bedrock label is on.
+A board refresh calls `schedule_get` and returns the scripted sentence. That refresh does not call Bedrock. Bedrock rephrases the sentence only when the MCP request includes the header `x-ser-narrate` set to 1, and only after the engine has already built the bookings, the outage, and any pending plan. The tool loop is a separate call, once per user turn.
 
-When `schedule_get` runs:
+When narration is requested:
 
 - `SER_LLM_MODE=scripted` never calls Bedrock, even if a token is set. The test suite sets this.
 - `SER_LLM_MODE=auto` (the default) and `SER_LLM_MODE=bedrock` call Bedrock only when credentials exist: a non-empty `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` together with `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE` with an existing shared credentials or config file, or `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`. With none of those, the mode stays scripted and no client is built.
-- The client is `boto3`'s `bedrock-runtime` `converse` method. `BEDROCK_MODEL_ID` defaults to amazon.nova-lite-v1:0. `AWS_REGION` defaults to `us-east-1`. boto3 reads `AWS_BEARER_TOKEN_BEDROCK` from the environment. The token is not a client argument.
-- If the call fails or returns no text, `schedule_get` returns the scripted sentence. The page keeps the label `Bedrock: on (model, region)` and shows the error beside it. When Bedrock is not attempted, the label is `Bedrock: off`.
+- The client is one cached `boto3` `bedrock-runtime` client, built at startup. `BEDROCK_MODEL_ID` defaults to amazon.nova-lite-v1:0. `AWS_REGION` defaults to `us-east-1`. boto3 reads `AWS_BEARER_TOKEN_BEDROCK` from the environment. The token is not a client argument. When that bearer token is set, the process sets `AWS_EC2_METADATA_DISABLED`. Converse runs on a worker thread with a timeout. The audited latency is the Converse call itself.
+- If narration fails or returns no text, `schedule_get` returns the scripted sentence. A failed user turn shows a short error and falls back to the pattern parser for that turn. The visible label is Fallback: pattern parser (Bedrock error: <code>). The audit row stores the code and the request id, not the raw exception. When Bedrock is not attempted, the label is `Bedrock: off`.
 - Each attempt appends one `bedrock_converse` audit row with the timestamp, model, region, request id, and latency. The token is not in that row. The system prompt forbids inventing facts, overriding the engine, reordering tool arguments, claiming authority, revealing masked data, and posing as the system of record.
 
-When the dev panel says Bedrock is on, a typed line, or a final spoken line that starts with the wake word Alexa, goes into a tool loop capped at 4 converse rounds and 4 tool executions. Converse receives a `toolConfig` built from the server's real tool list. The browser runs each accepted call on its existing MCP session, so the Confirm card still appears for `schedule_apply_replan`. A malformed call, an unknown tool, or arguments that do not match the schema stops the loop, and that call is not executed. The model does not choose slots, move bookings, invent facts, or confirm an apply. Each proposal and each result is an `agent_tool_call` audit row. The token is not in that row. While Bedrock is off, the chat uses the pattern parser and the page labels it Fallback: pattern parser (Bedrock off).
+When the dev panel says Bedrock is on, a typed line, or a final spoken line that starts with the wake word Alexa, goes into a tool loop capped at 4 converse rounds and 4 tool executions. The cap is enforced on the server for that `conversation_id`. The page stops at 4 as well. Converse receives a `toolConfig` of the read and propose tools, plus `schedule_apply_replan`. `reset_demo_data`, `debug_confirm`, and `verify_audit_chain` are not in that list, and the server refuses them if the model asks. The browser runs each accepted call on its existing MCP session, so the Confirm card still appears for `schedule_apply_replan`. The board refreshes between those calls. A malformed call, an unknown tool, or arguments that do not match the schema stops the loop, and that call is not executed. The model does not choose slots, move bookings, invent facts, or confirm an apply. Each proposal is an `agent_tool_call` audit row. A result the browser reports is stored as `client-reported`. An apply is recorded only by the server's own apply path. The token is not in that row. While Bedrock is off, the chat uses the pattern parser and the page labels it Fallback: pattern parser (Bedrock off). A failed Bedrock call uses the same parser for that turn and labels it Fallback: pattern parser (Bedrock error: <code>).
 
 The Mic button is push-to-talk. It uses `SpeechRecognition` or `webkitSpeechRecognition` in the browser, language en-US, and shows the live transcript. A final utterance that starts with Alexa is sent with no Enter key. The reply is shown in the bubble and spoken with `speechSynthesis`. If the browser has no speech API, or the microphone is denied, a notice stays visible and typing still works. This page does not call a cloud speech service.
 
-`serSimulateUtterance` and the `?utterance=` query are a simulation hook. They inject a transcript through the same function as a recognised utterance, so a test or a screen recording with no microphone can drive the turn. The wake word still applies.
+`serSimulateUtterance` and the `?utterance=` query are a simulation hook. They wait until the MCP session exists, the schedule has loaded, the Bedrock status has resolved, and any in-flight call has finished. Then they inject a transcript through the same function as a recognised utterance, so a test or a screen recording with no microphone can drive the turn. The wake word still applies.
 
 The seeded day is `SER_DEMO_DATE` (an ISO date). When that variable is unset, the day is today's date in `SER_DEMO_TZ`, which defaults to Europe/London. Audit timestamps stay on the real UTC clock and are not rewritten to the demo day. Start the MCP server and the web shell with the same values. The protocol console says MCP spec 2025-11-25.
 
@@ -230,7 +230,7 @@ export SER_DEMO_DATE=2026-10-20
 export SER_DEMO_TZ=Europe/London
 ```
 
-`boto3` (>=1.39, listed in `requirements.txt`) builds the client. Standard AWS credentials can stand in for the bearer token. Start the MCP server from that environment. After the first `schedule_get`, the dev panel shows `Bedrock: on (amazon.nova-lite-v1:0, us-east-1)`. `test_bedrock_converse_live` makes that one call and skips when `AWS_BEARER_TOKEN_BEDROCK` is unset. This repository does not use any other AWS service.
+`boto3` (>=1.39, listed in `requirements.txt`) builds one cached client at startup. Standard AWS credentials can stand in for the bearer token. Start the MCP server from that environment. The dev panel shows `Bedrock: on (amazon.nova-lite-v1:0, us-east-1)` from `/metrics`, without a Converse call on each board refresh. A user turn is what calls Converse. `test_bedrock_converse_live` makes that one call and skips when `AWS_BEARER_TOKEN_BEDROCK` is unset. This repository does not use any other AWS service.
 
 ## Architecture
 
@@ -303,7 +303,7 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 python -X utf8 -m pytest tests/ -q
 ```
 
-Measured on Linux. CPython 3.11.17, 3.12.3, and 3.13.16 with the Playwright browser installed: **90 passed**, 1 skipped. Without that browser: **87 passed**, 4 skipped. Before this tool loop the same 3.11 and 3.13 runs were **73 passed** with the browser and **71 passed**, 3 skipped, without it, and before those Bedrock tests **70 passed** with the browser and **68 passed**, 2 skipped, without it.
+Measured on Linux. CPython 3.11.17, 3.12.3, and 3.13.16 with the Playwright browser installed: **99 passed**, 1 skipped. Without that browser: **96 passed**, 4 skipped. Before these fixes the tool-loop commit was **90 passed** with the browser and **87 passed**, 4 skipped, without it. Before that tool loop the same 3.11 and 3.13 runs were **73 passed** with the browser and **71 passed**, 3 skipped, without it, and before those Bedrock tests **70 passed** with the browser and **68 passed**, 2 skipped, without it.
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
 - `test_engine_edges.py` (6): boundary edges — half-open intervals, zero-duration, zero-buffer adjacency, unknown equipment.
@@ -350,7 +350,7 @@ silently go stale.
 | MCP SDK | `mcp==1.30.0` (FastMCP) | official, 2025-11-25 spec, elicitation support |
 | Transport | Streamable HTTP (SSE responses) | required for server→client elicitation |
 | DB | SQLite (`server.db`) | transactional versioning + audit log, zero ops |
-| Narration | Amazon Nova Lite via Bedrock Converse | Advisory wording of the `schedule_get` sentence, plus a 4-step tool loop on the simulated page when Bedrock is on. Scripted sentence and the pattern parser when the call is not made or it fails. |
+| Narration | Amazon Nova Lite via Bedrock Converse | Advisory wording of the `schedule_get` sentence when the request sends `x-ser-narrate`, plus a 4-step tool loop on the simulated page when Bedrock is on. A board refresh stays on the scripted sentence. Scripted sentence and the pattern parser when the call is not made or it fails. |
 
 ## License
 
@@ -362,7 +362,7 @@ MIT — see LICENSE. Synthetic demo data; not production-hardened.
 
 **共用儀器故障復原的 AI 助手 —— 一個自架的 MCP 2025-11-25 伺服器：偵測故障會影響哪些預約、提出通過規則檢查的重排方案，而且在人類明確確認之前，絕不寫入任何變更（MCP elicitation，人類在環）。**
 
-Amazon「Build, Ship, Shape」黑客松參賽作品 —— **Alexa+ 主賽道** ＋ **AWS Builder 挑戰**（Amazon Nova Lite，經 Bedrock Converse API）。排程那句是敘事。在模擬頁面上，有上限的工具迴圈可以提出 MCP 呼叫。每一次搬移都由引擎決定，Confirm 點擊仍是人類的。
+Amazon「Build, Ship, Shape」黑客松參賽作品 —— **Alexa+ 主賽道** ＋ **AWS Builder 挑戰**（Amazon Nova Lite，經 Bedrock Converse API）。看板重新整理用的是 scripted 句子。在模擬頁面上，有上限的工具迴圈可以提出 MCP 呼叫。每一次搬移都由引擎決定，Confirm 點擊仍是人類的。
 
 `web/` 提供的頁面是 **simulated Alexa+ experience**（模擬的 Alexa+ 體驗）：瀏覽器裡的 MCP 客戶端，不是實體 Alexa 裝置。
 
@@ -420,13 +420,13 @@ cd web && python app.py --port 8080
 python -m pytest tests/ -q
 ```
 
-在 Linux 上，於 `pip install -r requirements-dev.txt` 之後量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器（`python -m playwright install chromium`）：**90 passed**、1 skipped。沒有那個瀏覽器：**87 passed**、4 skipped。沒有瀏覽器時跳過的是 `test_video_walk.py`、`test_screenshots_current.py`、`test_voice_hook.py` 的瀏覽器那一半，以及 `test_bedrock_converse_live`（當時 `AWS_BEARER_TOKEN_BEDROCK` 沒有設定）。有瀏覽器時只跳過 `test_bedrock_converse_live`。這個工具迴圈之前、只有敘事的那個 commit，在同樣的 Linux 3.11 與 3.13 上是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped。那些 Bedrock 測試加入之前的 commit 是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
+在 Linux 上，於 `pip install -r requirements-dev.txt` 之後量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器（`python -m playwright install chromium`）：**99 passed**、1 skipped。沒有那個瀏覽器：**96 passed**、4 skipped。沒有瀏覽器時跳過的是 `test_video_walk.py`、`test_screenshots_current.py`、`test_voice_hook.py` 的瀏覽器那一半，以及 `test_bedrock_converse_live`（當時 `AWS_BEARER_TOKEN_BEDROCK` 沒有設定）。有瀏覽器時只跳過 `test_bedrock_converse_live`。這些修正之前的工具迴圈 commit，在同樣的測試上是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前、只有敘事的那個 commit，在同樣的 Linux 3.11 與 3.13 上是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped。那些 Bedrock 測試加入之前的 commit 是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
 
 ### 什麼是真的，什麼是模擬的
 
 **這個儲存庫裡真的有：** MCP 伺服器（`mcp==1.30.0`、spec 2025-11-25、Streamable HTTP）；這個網頁作為 MCP 客戶端，含伺服器發起的 elicitation；確定性的重排引擎；SQLite、單調的 `schedule_version`、冪等的 `plan_id`，以及雜湊鏈審計紀錄。示範 token（`tok-manager`、`tok-chen`、`tok-wang`、`tok-li`）是故意的假 token。
 
-**模擬的：** web UI 是 simulated Alexa+ experience，標題是 Alexa+ (simulated) — MCP client。預約、人物，以及兩台共軛焦顯微鏡都是合成資料。種子日是 `SER_DEMO_DATE`，沒設定時就是 `SER_DEMO_TZ` 的今天（預設 Europe/London）。測試裡發表的情境是 2026-10-20。Bedrock 關閉時，對話框比對幾句固定說法，並把那條路徑標成 Fallback: pattern parser (Bedrock off)。Bedrock 開啟時，同一個對話框可以提出工具呼叫，上限 4 步。Amazon Nova Lite 在那次呼叫發生時，仍會改寫 `schedule_get` 的總覽句。模型不決定預約。Confirm 卡仍是一次點擊。
+**模擬的：** web UI 是 simulated Alexa+ experience，標題是 Alexa+ (simulated) — MCP client。預約、人物，以及兩台共軛焦顯微鏡都是合成資料。種子日是 `SER_DEMO_DATE`，沒設定時就是 `SER_DEMO_TZ` 的今天（預設 Europe/London）。測試裡發表的情境是 2026-10-20。Bedrock 關閉時，對話框比對幾句固定說法，並把那條路徑標成 Fallback: pattern parser (Bedrock off)。Bedrock 開啟時，同一個對話框可以提出工具呼叫，上限 4 步。看板重新整理不會呼叫 Bedrock。只有請求帶了 `x-ser-narrate` 時，Bedrock 才會改寫 `schedule_get` 的總覽句。模型不決定預約。Confirm 卡仍是一次點擊。
 
 ## 它在做什麼
 
@@ -532,23 +532,23 @@ async with streamablehttp_client("http://127.0.0.1:8765/mcp", headers=headers) a
 
 ## LLM 層（雙模式，計畫 §7）
 
-`mcp_server/llm.py` 改寫 `schedule_get` 那句話，`agent_converse` 則為對話迴圈提出工具呼叫。兩條路徑都不選時段、也不搬預約。`schedule_apply_replan` 仍然要等人類的 Confirm 卡。**沒有 AWS 憑證？demo 仍用 scripted 那句話和 pattern parser 跑完。**
+`mcp_server/llm.py` 可以改寫 `schedule_get` 那句話，`agent_converse` 則為對話迴圈提出工具呼叫。兩條路徑都不選時段、也不搬預約。`schedule_apply_replan` 仍然要等人類的 Confirm 卡。**沒有 AWS 憑證？demo 仍用 scripted 那句話和 pattern parser 跑完。**
 
-在 `schedule_get` 裡，Bedrock 只在引擎已經組好預約、故障與待處理方案之後才嘗試。那次呼叫改寫 `script_schedule_overview` 本來會回傳的句子。工具迴圈是另外一條，而且只在頁面的 Bedrock 標籤為 on 時才跑。
+看板重新整理會呼叫 `schedule_get` 並回傳 scripted 句子。那次重新整理不會呼叫 Bedrock。只有 MCP 請求帶了標頭 `x-ser-narrate` 且值為 1 時，Bedrock 才改寫那句話，而且是在引擎已經組好預約、故障與待處理方案之後。工具迴圈是另外一通呼叫，每一輪使用者的話一次。
 
-`schedule_get` 執行時：
+要求敘事時：
 
 - `SER_LLM_MODE=scripted` 即使有 token 也不呼叫 Bedrock。測試套件就是這樣設的。
 - `SER_LLM_MODE=auto`（預設）與 `SER_LLM_MODE=bedrock` 只有在憑證存在時才呼叫：非空的 `AWS_BEARER_TOKEN_BEDROCK`，或 `AWS_ACCESS_KEY_ID` 加上 `AWS_SECRET_ACCESS_KEY`，或 `AWS_PROFILE` 指向已存在的共用 credentials 或 config 檔，或 `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`。這些都沒有時，模式維持 scripted，不會建立 client。
-- Client 是 `boto3` 的 `bedrock-runtime` `converse`。`BEDROCK_MODEL_ID` 預設 amazon.nova-lite-v1:0。`AWS_REGION` 預設 `us-east-1`。boto3 自己從環境讀 `AWS_BEARER_TOKEN_BEDROCK`。token 不是 client 參數。
-- 呼叫失敗或沒有文字時，`schedule_get` 回傳 scripted 那句。頁面標籤維持 `Bedrock: on (model, region)`，錯誤顯示在旁邊。沒有嘗試 Bedrock 時，標籤是 `Bedrock: off`。
+- Client 是啟動時建立的一個快取過的 `boto3` `bedrock-runtime` client。`BEDROCK_MODEL_ID` 預設 amazon.nova-lite-v1:0。`AWS_REGION` 預設 `us-east-1`。boto3 自己從環境讀 `AWS_BEARER_TOKEN_BEDROCK`。token 不是 client 參數。設定了這個 bearer token 時，行程會設定 `AWS_EC2_METADATA_DISABLED`。Converse 在工作執行緒上跑，並有逾時。審計裡的 latency 只算 Converse 那一次呼叫。
+- 敘事失敗或沒有文字時，`schedule_get` 回傳 scripted 那句。使用者這一輪如果呼叫失敗，會顯示一句短錯誤，並在這一輪改走 pattern parser。畫面上的標籤是 Fallback: pattern parser (Bedrock error: <code>)。審計列存的是 code 和 request id，不是原始例外。沒有嘗試 Bedrock 時，標籤是 `Bedrock: off`。
 - 每一次嘗試追加一筆 `bedrock_converse` 審計列，內容是 timestamp、model、region、request id、latency。那一列沒有 token。system prompt 禁止捏造事實、覆寫引擎、重排工具參數、宣稱權限、揭露被遮蔽的資料，以及自稱是唯一真實紀錄。
 
-當 dev panel 顯示 Bedrock 為 on，打字的一行，或一句以喚醒詞 Alexa 開頭的最終語音，會進入工具迴圈。上限是 4 輪 Converse 與 4 次工具執行。Converse 收到的 `toolConfig` 來自伺服器真實的工具清單。瀏覽器在自己既有的 MCP session 上執行每一個被接受的呼叫，所以 `schedule_apply_replan` 仍會出現 Confirm 卡。格式錯誤的呼叫、未知的工具，或不符合 schema 的參數會停掉迴圈，那個呼叫不會被執行。模型不選時段、不搬預約、不捏造事實、也不確認套用。每一次提案與每一次結果都是一筆 `agent_tool_call` 審計列。那一列沒有 token。Bedrock 關閉時，對話框使用 pattern parser，頁面把它標成 Fallback: pattern parser (Bedrock off)。
+當 dev panel 顯示 Bedrock 為 on，打字的一行，或一句以喚醒詞 Alexa 開頭的最終語音，會進入工具迴圈。上限是 4 輪 Converse 與 4 次工具執行。這個上限由伺服器按那個 `conversation_id` 執行。頁面也會在 4 步停下。Converse 收到的 `toolConfig` 是讀取與提案工具，再加上 `schedule_apply_replan`。`reset_demo_data`、`debug_confirm` 與 `verify_audit_chain` 不在那份清單裡，模型如果開口要，伺服器會拒絕。瀏覽器在自己既有的 MCP session 上執行每一個被接受的呼叫，所以 `schedule_apply_replan` 仍會出現 Confirm 卡。看板會在這些呼叫之間重新整理。格式錯誤的呼叫、未知的工具，或不符合 schema 的參數會停掉迴圈，那個呼叫不會被執行。模型不選時段、不搬預約、不捏造事實、也不確認套用。每一次提案是一筆 `agent_tool_call` 審計列。瀏覽器回報的結果存成 `client-reported`。套用只由伺服器自己的 apply 路徑記錄。那一列沒有 token。Bedrock 關閉時，對話框使用 pattern parser，頁面把它標成 Fallback: pattern parser (Bedrock off)。Bedrock 呼叫失敗時，這一輪同樣改用這個 parser，並標成 Fallback: pattern parser (Bedrock error: <code>)。
 
 Mic 按鈕是 push-to-talk。它在瀏覽器裡使用 `SpeechRecognition` 或 `webkitSpeechRecognition`，語言 en-US，並顯示即時逐字稿。一句以 Alexa 開頭的最終語句不需要按 Enter 就會送出。回覆顯示在氣泡裡，並用 `speechSynthesis` 唸出來。瀏覽器沒有語音 API，或麥克風被拒絕時，畫面上會留著提示，打字仍然可用。這個頁面不呼叫雲端語音服務。
 
-`serSimulateUtterance` 與 `?utterance=` 查詢是 simulation hook。它們把一段逐字稿送進與辨識結果相同的函式，所以沒有麥克風的測試或螢幕錄影也能驅動這一輪。喚醒詞仍然要有。
+`serSimulateUtterance` 與 `?utterance=` 查詢是 simulation hook。它們會等到 MCP session 存在、排程已載入、Bedrock 狀態已解析，而且沒有進行中的呼叫，才把一段逐字稿送進與辨識結果相同的函式，所以沒有麥克風的測試或螢幕錄影也能驅動這一輪。喚醒詞仍然要有。
 
 種子日是 `SER_DEMO_DATE`（ISO 日期）。這個變數沒設定時，那天是 `SER_DEMO_TZ` 的今天，預設 Europe/London。審計時間戳維持真實的 UTC 時鐘，不會被改寫成示範日。MCP server 與 web shell 要用同一組值啟動。協定主控台寫的是 MCP spec 2025-11-25。
 
@@ -565,7 +565,7 @@ export SER_DEMO_DATE=2026-10-20
 export SER_DEMO_TZ=Europe/London
 ```
 
-`boto3`（`requirements.txt` 裡的 >=1.39）建立 client。標準 AWS 憑證可以取代 bearer token。從那個環境啟動 MCP server。第一次 `schedule_get` 之後，dev panel 顯示 `Bedrock: on (amazon.nova-lite-v1:0, us-east-1)`。`test_bedrock_converse_live` 打這一通，`AWS_BEARER_TOKEN_BEDROCK` 沒設定時跳過。這個儲存庫不使用任何其他 AWS 服務。
+`boto3`（`requirements.txt` 裡的 >=1.39）在啟動時建立一個快取過的 client。標準 AWS 憑證可以取代 bearer token。從那個環境啟動 MCP server。dev panel 從 `/metrics` 顯示 `Bedrock: on (amazon.nova-lite-v1:0, us-east-1)`，看板每次重新整理不會打一通 Converse。使用者的一輪才會呼叫 Converse。`test_bedrock_converse_live` 打這一通，`AWS_BEARER_TOKEN_BEDROCK` 沒設定時跳過。這個儲存庫不使用任何其他 AWS 服務。
 
 ## 架構
 
@@ -606,7 +606,7 @@ Tier 3 加項：每一筆審計紀錄還會存一份事件的**結構化 JSON �
 python -X utf8 -m pytest tests/ -q
 ```
 
-在 Linux 上量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器：**90 passed**、1 skipped。沒有那個瀏覽器：**87 passed**、4 skipped。這個工具迴圈之前，同樣的 3.11 與 3.13 是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped；那些 Bedrock 測試加入之前是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
+在 Linux 上量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器：**99 passed**、1 skipped。沒有那個瀏覽器：**96 passed**、4 skipped。這些修正之前的工具迴圈 commit 是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前，同樣的 3.11 與 3.13 是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped；那些 Bedrock 測試加入之前是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
 
 - `test_engine.py`（12）：時段搜尋、緩衝語意、權限、B4 範圍的引擎修正、故障可見於搜尋的回歸，以及選擇鍵的平手規則（最早開始者勝；完全平手時留在原設備）。
 - `test_engine_edges.py`（6）：邊界 —— 半開區間、零時長、零緩衝相鄰、未知設備。
@@ -645,7 +645,7 @@ python -X utf8 tools/shoot_screenshots.py
 | MCP SDK | `mcp==1.30.0`（FastMCP） | 官方、支援 2025-11-25 規格與 elicitation |
 | 傳輸 | Streamable HTTP（SSE 回應） | 伺服器→客戶端 elicitation 的必要條件 |
 | 資料庫 | SQLite（`server.db`） | 交易式版本控制 ＋ 審計紀錄，零維運 |
-| 敘事 | Amazon Nova Lite，Bedrock Converse | 改寫 `schedule_get` 那句，並在 Bedrock 開啟時於模擬頁面跑 4 步的工具迴圈。沒呼叫或呼叫失敗時用 scripted 句子和 pattern parser。 |
+| 敘事 | Amazon Nova Lite，Bedrock Converse | 請求帶了 `x-ser-narrate` 時改寫 `schedule_get` 那句，並在 Bedrock 開啟時於模擬頁面跑 4 步的工具迴圈。看板重新整理維持 scripted 句子。沒呼叫或呼叫失敗時用 scripted 句子和 pattern parser。 |
 
 ## 授權
 

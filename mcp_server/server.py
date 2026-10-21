@@ -413,6 +413,7 @@ class TransportGuardMiddleware:
         """
         from .agent import catalog_from_fastmcp, http_result, http_step
         from .auth import principal_from_headers
+        from .llm import CONVERSE_TIMEOUT_SECONDS, timeout_fallback
 
         principal = principal_from_headers(lambda name: headers.get(name.lower()))
         if principal is None:
@@ -423,12 +424,30 @@ class TransportGuardMiddleware:
             await self._send_json(send, 400, {"error": err, "bedrock": True, "stopped": True,
                                               "calls": [], "message": err})
             return
+        auth = headers.get("authorization") or ""
+        token = ""
+        parts = auth.strip().split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1].strip()
         catalog = catalog_from_fastmcp(mcp)
         if path == "/agent/step":
-            payload = http_step(body, principal, catalog)
+            loop = asyncio.get_running_loop()
+            try:
+                payload = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: http_step(body, principal, catalog, token=token),
+                    ),
+                    timeout=CONVERSE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                payload = timeout_fallback(int(CONVERSE_TIMEOUT_SECONDS * 1000))
         else:
-            payload = http_result(body, principal)
-        await self._send_json(send, 200, payload)
+            payload = http_result(body, principal, token=token)
+        status = 200
+        if isinstance(payload, dict) and "http_status" in payload:
+            status = int(payload.pop("http_status") or 200)
+        await self._send_json(send, status, payload)
 
     @staticmethod
     async def _read_json_body(receive):
@@ -578,6 +597,23 @@ def _principal(ctx: Context) -> Optional[Principal]:
     if req is None:
         return None
     return principal_from_headers(req.headers.get)
+
+
+def _narration_requested(ctx: Context) -> bool:
+    """True only when the caller asked to rephrase this schedule_get.
+
+    A board refresh does not send the header, so loading the schedule does
+    not call Bedrock. A narration request sends x-ser-narrate: 1.
+    """
+    rc = ctx.request_context if ctx is not None else None
+    req = getattr(rc, "request", None) if rc is not None else None
+    if req is None:
+        return False
+    try:
+        value = req.headers.get("x-ser-narrate")
+    except Exception:
+        return False
+    return str(value or "").strip() == "1"
 
 
 def _forbidden_ctx(version: int) -> str:
@@ -919,11 +955,16 @@ async def _schedule_get_impl(
         "bookings": [b.model_dump() for b in bookings],
         "open_outages": [o.model_dump() for o in open_outages],
     }
-    # Bedrock may rephrase this sentence. The bookings above are already decided.
+    # The bookings above are already decided. A board refresh keeps the
+    # scripted sentence. Bedrock rephrases it only when x-ser-narrate is 1,
+    # and that call runs off the event loop.
     scripted = script_schedule_overview(_snap)
-    try:
-        message = narrate("schedule_overview", _snap, scripted)
-    except Exception:
+    if _narration_requested(ctx):
+        try:
+            message = await asyncio.to_thread(narrate, "schedule_overview", _snap, scripted)
+        except Exception:
+            message = scripted
+    else:
         message = scripted
     log.info("call schedule_get unit=%s date=%s actor=%s status=ok", unit_id, date, viewer.name)
     _audit("schedule_get", "ok", p, f"unit={unit_id} date={date} version={version}", ctx)
@@ -1852,6 +1893,8 @@ async def debug_confirm(ctx: Context = None) -> ConfirmResult:
 def build_app():
     """ASGI app (Streamable HTTP at /mcp) wrapped in the transport guard."""
     initialize_storage()
+    from .llm import warm_client
+    warm_client()
     return TransportGuardMiddleware(mcp.streamable_http_app())
 
 
@@ -1891,5 +1934,7 @@ def main() -> None:
     if args.db:
         os.environ["SER_DB_PATH"] = args.db
     initialize_storage()
+    from .llm import warm_client
+    warm_client()
     app = TransportGuardMiddleware(mcp.streamable_http_app())
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

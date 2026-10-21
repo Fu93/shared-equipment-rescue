@@ -217,14 +217,16 @@ def test_narrate_stubbed_failure_falls_back_and_shows_error(monkeypatch, tmp_pat
         llm.set_client_factory(None)
     assert text == "scripted fallback"
     assert status["label"] == "Bedrock: on (amazon.nova-lite-v1:0, us-east-1)"
-    assert status["error"]
+    assert status["error"] == "Bedrock could not answer (RuntimeError)."
     assert token not in status["error"]
-    assert "denied" in status["error"]
+    assert "denied" not in status["error"]
     from mcp_server import db as dbm
     rows = dbm.audit_entries(limit=5, tool="bedrock_converse")
     assert rows and rows[0]["result"] == "error"
     blob = (rows[0]["detail"] or "") + (rows[0]["detail_json"] or "")
     assert token not in blob
+    assert "denied" not in blob
+    assert "RuntimeError" in blob
     assert "latency_ms=" in rows[0]["detail"]
 
 
@@ -262,3 +264,76 @@ def test_bedrock_converse_live(monkeypatch, tmp_path):
     assert rows[0]["at"]
     assert "latency_ms=" in rows[0]["detail"]
     assert "request_id=" in rows[0]["detail"]
+
+
+def test_bearer_disables_ec2_metadata(monkeypatch):
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bearer-secret-do-not-log")
+    monkeypatch.delenv("AWS_EC2_METADATA_DISABLED", raising=False)
+    llm.disable_ec2_metadata_for_bearer()
+    assert os.environ["AWS_EC2_METADATA_DISABLED"] == "true"
+
+
+def test_bedrock_client_is_cached(monkeypatch):
+    monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    llm.set_client_factory(None)
+    calls = []
+    sentinel = object()
+
+    def client(name, region_name=None):
+        calls.append((name, region_name))
+        return sentinel
+
+    import boto3
+    monkeypatch.setattr(boto3, "client", client)
+    try:
+        assert llm._make_client() is sentinel
+        assert llm._make_client() is sentinel
+    finally:
+        llm.set_client_factory(None)
+    assert calls == [("bedrock-runtime", "us-east-1")]
+
+
+def test_schedule_get_skips_bedrock_unless_narration_is_requested(monkeypatch, tmp_path):
+    import asyncio
+
+    monkeypatch.setenv("SER_DB_PATH", str(tmp_path / "narrate.db"))
+    monkeypatch.setenv("SER_LLM_MODE", "bedrock")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bearer-secret-do-not-log")
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    from mcp_server.server import _schedule_get_impl, initialize_storage
+    initialize_storage()
+    stub = _StubClient()
+    llm.set_client_factory(lambda: stub)
+
+    class _Req:
+        def __init__(self, headers):
+            self.headers = headers
+
+    class _Ctx:
+        def __init__(self, headers):
+            self.request_context = type("RC", (), {"request": _Req(headers)})()
+
+    headers = {"authorization": "Bearer tok-manager"}
+    try:
+        plain = asyncio.run(_schedule_get_impl("lab-a", "2026-10-20", _Ctx(headers)))
+        assert plain.status == "ok"
+        assert stub.calls == []
+        assert plain.message == llm.script_schedule_overview({
+            "schedule_version": plain.schedule_version,
+            "viewer": {
+                "name": plain.viewer.name,
+                "user_id": plain.viewer.user_id,
+                "role": plain.viewer.role,
+            },
+            "bookings": [b.model_dump() for b in plain.bookings],
+            "open_outages": [o.model_dump() for o in plain.open_outages],
+        })
+        asked = asyncio.run(_schedule_get_impl(
+            "lab-a", "2026-10-20", _Ctx({**headers, "x-ser-narrate": "1"}),
+        ))
+    finally:
+        llm.set_client_factory(None)
+    assert len(stub.calls) == 1
+    assert asked.message == "Narrated by the stub."

@@ -126,27 +126,54 @@ async def _drive():
             page = await browser.new_page(viewport={"width": 1440, "height": 900})
             errors = []
             page.on("pageerror", lambda err: errors.append(str(err)))
-            await page.goto(url, wait_until="domcontentloaded")
-            await page.wait_for_function(
-                "() => document.getElementById('connText') && document.getElementById('connText').textContent.includes('connected')",
-                timeout=20000,
+            from urllib.parse import quote
+
+            # The query hook has to run on its own, from the first paint,
+            # and the version has to change. A string search is not this test.
+            await page.goto(
+                url + "/?utterance=" + quote("Alexa, Confocal A is down until 4pm"),
+                wait_until="domcontentloaded",
             )
-            assert await page.evaluate("typeof window.serSimulateUtterance") == "function"
-            await page.evaluate("window.serSimulateUtterance('Confocal A is down until 4pm')")
-            await page.wait_for_timeout(800)
-            assert "v1" in (await page.text_content("#verBadge") or "")
-            transcript = await page.text_content("#liveTranscript")
-            assert "Confocal A is down until 4pm" in (transcript or "")
-            chat = await page.locator(".chat-messages").inner_text()
-            assert "Understood" not in chat
-            await page.evaluate("window.serSimulateUtterance('Alexa, Confocal A is down until 4pm')")
             await page.wait_for_function(
                 "() => (document.getElementById('verBadge') || {}).textContent === 'v2'",
                 timeout=20000,
             )
             body = await page.inner_text("body")
+            assert "Understood" in body
             assert "Fallback: pattern parser (Bedrock off)" in body
             assert not errors, errors
+
+            # Called before the session is up, the function waits, then drives
+            # the same path. A line without the wake word changes nothing.
+            page2 = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors2 = []
+            page2.on("pageerror", lambda err: errors2.append(str(err)))
+            await page2.goto(url, wait_until="domcontentloaded")
+            await page2.wait_for_function(
+                "() => typeof window.serSimulateUtterance === 'function'",
+                timeout=20000,
+            )
+            await page2.evaluate(
+                "(text) => window.serSimulateUtterance(text)",
+                "Confocal B is down until 5pm",
+            )
+            await page2.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v2'",
+                timeout=20000,
+            )
+            chat = await page2.locator(".chat-messages").inner_text()
+            assert "Understood" not in chat
+            transcript = await page2.text_content("#liveTranscript")
+            assert "Confocal B is down until 5pm" in (transcript or "")
+            await page2.evaluate(
+                "(text) => window.serSimulateUtterance(text)",
+                "Alexa, Confocal B is down until 5pm",
+            )
+            await page2.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v3'",
+                timeout=20000,
+            )
+            assert not errors2, errors2
             await browser.close()
     finally:
         for proc in (web, mcp):

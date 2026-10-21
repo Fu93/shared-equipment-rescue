@@ -542,7 +542,11 @@
         const DEMO_TZ = '__SER_DEMO_TZ__';
         const DEMO_OFFSET = '__SER_DEMO_OFFSET__';
         let bedrockOn = false;
+        let bedrockResolved = false;
+        let holdChatMode = false;
         let speechTurn = false;
+        let sessionReadyResolve = null;
+        const sessionReady = new Promise((resolve) => { sessionReadyResolve = resolve; });
         let client = null;
         let currentToken = 'tok-manager';
         let lastSchedule = null;
@@ -1217,7 +1221,7 @@
             if (data.status === 'ok') {
                 setLamp('on', 'connected');
                 renderSchedule(data);
-                if (data.viewer && data.viewer.role === 'manager') loadChainBadge();
+                if (data.viewer && data.viewer.role === 'manager') await loadChainBadge();
             }
             else if (data.status === 'transport_error') {
                 setLamp('off', 'server down');
@@ -1226,14 +1230,17 @@
                 return;
             }
             else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
-            refreshBedrockLabel();
+            await refreshBedrockLabel();
             return data;
         }
 
         async function refreshBedrockLabel() {
             const el = $('bedrockLabel');
             const err = $('bedrockError');
-            if (!el || !err) return;
+            if (!el || !err) {
+                bedrockResolved = true;
+                return;
+            }
             try {
                 const res = await fetch('/metrics', { cache: 'no-store' });
                 if (!res.ok) {
@@ -1257,7 +1264,7 @@
                 el.textContent = b.label;
                 bedrockOn = !!b.on;
                 const mode = $('chatMode');
-                if (mode) {
+                if (mode && !holdChatMode) {
                     mode.textContent = b.on
                         ? 'Agent: Bedrock tool loop (max 4 steps)'
                         : 'Fallback: pattern parser (Bedrock off)';
@@ -1274,6 +1281,8 @@
                 bedrockOn = false;
                 err.hidden = false;
                 err.textContent = 'Bedrock status unavailable';
+            } finally {
+                bedrockResolved = true;
             }
         }
 
@@ -1622,10 +1631,35 @@
         }
 
         function dispatchCommand(text, fromSpeech) {
+            holdChatMode = false;
             speechTurn = !!fromSpeech;
             addMessage(text, 'system');
             if (bedrockOn) runAgentLoop(text);
             else runPatternParser(text);
+        }
+
+        // The hook, the mic, and ?utterance= all wait for the same gate:
+        // an MCP session, a loaded schedule, a resolved Bedrock label, and
+        // no call still in flight. loadSchedule starts the audit-chain read
+        // without waiting, so a turn that starts the moment the board
+        // appears used to hit that call and come back busy.
+        async function waitUntilIdle(limitMs) {
+            const limit = limitMs == null ? 20000 : limitMs;
+            const start = Date.now();
+            let quiet = 0;
+            while (Date.now() - start < limit) {
+                if (inflight || !client || !lastSchedule || !bedrockResolved) quiet = 0;
+                else quiet += 1;
+                if (quiet >= 3) return;
+                await new Promise((r) => setTimeout(r, 40));
+            }
+        }
+
+        async function deliverUtterance(text) {
+            await sessionReady;
+            await waitUntilIdle();
+            onFinalUtterance(text);
+            await waitUntilIdle();
         }
 
         // Final SpeechRecognition result, and the simulation hook, both land here.
@@ -1643,7 +1677,7 @@
         // here, or with ?utterance=, and it takes the same path as a final
         // SpeechRecognition result (wake word included).
         window.serSimulateUtterance = function (text) {
-            onFinalUtterance(text);
+            return deliverUtterance(text);
         };
 
         function initSpeech() {
@@ -1677,7 +1711,7 @@
                 const finished = finalText.trim();
                 if (finished && !interim && finished !== handed) {
                     handed = finished;
-                    onFinalUtterance(finished);
+                    deliverUtterance(finished);
                 }
             };
             rec.onerror = (ev) => {
@@ -1713,8 +1747,22 @@
             mic.addEventListener('pointercancel', stopMic);
         }
 
+        function newConversationId() {
+            let id = '';
+            if (window.crypto && crypto.getRandomValues) {
+                const bytes = new Uint8Array(16);
+                crypto.getRandomValues(bytes);
+                id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+            } else {
+                id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+            }
+            id = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+            return id || 'turn';
+        }
+
         async function runAgentLoop(text) {
             const messages = [{ role: 'user', content: [{ text: text }] }];
+            const conversationId = newConversationId();
             let rounds = 0;
             let executions = 0;
             const speak = speechTurn;
@@ -1728,7 +1776,12 @@
                                 'content-type': 'application/json',
                                 'authorization': 'Bearer ' + currentToken,
                             },
-                            body: JSON.stringify({ messages: messages, rounds: rounds, executions: executions }),
+                            body: JSON.stringify({
+                                messages: messages,
+                                rounds: rounds,
+                                executions: executions,
+                                conversation_id: conversationId,
+                            }),
                         });
                         res = await http.json();
                     } catch (e) {
@@ -1742,10 +1795,22 @@
                         runPatternParser(text);
                         return;
                     }
+                    if (res.fallback) {
+                        const mode = $('chatMode');
+                        const code = res.error_code || 'Error';
+                        if (mode) {
+                            mode.textContent = res.label
+                                || ('Fallback: pattern parser (Bedrock error: ' + code + ')');
+                        }
+                        holdChatMode = true;
+                        if (res.message) addMessage(res.message, 'outage-message', speak);
+                        runPatternParser(text);
+                        return;
+                    }
                     if (res.assistant_message) messages.push(res.assistant_message);
                     if (typeof res.rounds === 'number') rounds = res.rounds;
                     if (res.stopped || res.error) {
-                        addMessage(res.message || res.error || 'Stopped.', 'outage-message', speak);
+                        addMessage(res.message || 'Stopped.', 'outage-message', speak);
                         await loadSchedule();
                         return;
                     }
@@ -1760,6 +1825,7 @@
                             lastApplyPlanId = call.input.plan_id;
                         }
                         const result = await safeCall(call.name, call.input || {});
+                        await loadSchedule();
                         executions += 1;
                         if (call.name === 'schedule_propose_replan' && result && result.plan_id) {
                             lastProposals.set(result.plan_id, result);
@@ -1903,20 +1969,27 @@
                     : (['audit', 'timeline'].includes(vhash) ? vhash : null);
                 if (want) setView(want);
             } catch (_) { /* ignore malformed query */ }
+            let uttered = '';
             try {
                 await connect(currentToken);
                 await loadSchedule();
-                // Simulation hook. Same path as a final recognition result,
-                // and only after the MCP session exists.
-                const uttered = new URLSearchParams(location.search).get('utterance');
-                if (uttered) onFinalUtterance(uttered);
+                await waitUntilIdle();
+                // Simulation hook. Same path as a final recognition result.
+                // It runs only after the session, the schedule, and the
+                // Bedrock status exist, and deliverUtterance waits again if
+                // a call is still in flight.
+                uttered = new URLSearchParams(location.search).get('utterance') || '';
             } catch (err) {
                 logMCP('in', 'initialize', 'FAIL', err.message);
                 setLamp('off', 'server down');
                 client = null;
                 addMessage('Cannot reach the MCP server on :8765 \u2014 it will retry automatically once it is back.', 'outage-message');
                 reconnectLoop();
+            } finally {
+                if (!bedrockResolved) bedrockResolved = true;
+                sessionReadyResolve();
             }
+            if (uttered) deliverUtterance(uttered);
         });
     </script>
 </body>

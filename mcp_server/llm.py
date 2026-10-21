@@ -9,14 +9,17 @@ Six prohibitions (§7.2) — the LLM NEVER:
 6. styles itself as the system of record — the DB is.
 
 Four scripted flows (§7.3): schedule_overview, outage_narrative,
-apply_result_narrative, unresolved_narrative. schedule_overview is sent to
-Bedrock from schedule_get, after the engine has decided, and only to rephrase
+apply_result_narrative, unresolved_narrative. schedule_get returns the
+scripted overview on a board refresh. It calls Bedrock only when the request
+sends x-ser-narrate: 1, after the engine has decided, and only to rephrase
 that sentence. A separate agent_converse path proposes MCP tool calls for the
-simulated Alexa+ page. That path is bounded and fail-closed in mcp_server.agent.
-The model still does not choose slots, move bookings, or confirm an apply.
-Mode selection: SER_LLM_MODE=scripted never calls Bedrock. auto (default)
-and bedrock call Converse only when AWS_BEARER_TOKEN_BEDROCK or standard
-AWS credentials are present. A narration failure returns the scripted sentence.
+simulated Alexa+ page, once per user turn. That path is bounded and
+fail-closed in mcp_server.agent. The model still does not choose slots, move
+bookings, or confirm an apply. Mode selection: SER_LLM_MODE=scripted never
+calls Bedrock. auto (default) and bedrock call Converse only when
+AWS_BEARER_TOKEN_BEDROCK or standard AWS credentials are present. A narration
+failure returns the scripted sentence. A failed user turn falls back to the
+pattern parser with a short error.
 """
 
 from __future__ import annotations
@@ -127,9 +130,38 @@ def bedrock_status() -> dict:
 
 def set_client_factory(factory: Optional[Callable[[], Any]]) -> None:
     """Install a stub bedrock-runtime client. None restores boto3."""
-    global _client_factory, _last_error
+    global _client_factory, _last_error, _cached_client, _cached_region
     _client_factory = factory
     _last_error = ""
+    if factory is None:
+        _cached_client = None
+        _cached_region = None
+
+
+# One client per process. Building it probes the AWS credential chain, which
+# spends about two seconds on EC2 metadata when nothing else is configured.
+_cached_client: Any = None
+_cached_region: str = ""
+CONVERSE_TIMEOUT_SECONDS = 20
+
+
+def disable_ec2_metadata_for_bearer() -> None:
+    """A bearer token is the credential. Skip the EC2 metadata probe."""
+    if (os.environ.get("AWS_BEARER_TOKEN_BEDROCK") or "").strip():
+        os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
+
+
+def warm_client() -> None:
+    """Create the cached client once at startup when this process will call Bedrock."""
+    if llm_mode() != "bedrock":
+        return
+    try:
+        _make_client()
+    except Exception as exc:
+        global _last_error
+        code, _request_id, short = _failure_details(exc)
+        _last_error = short
+        log.warning("Bedrock client setup failed code=%s", code)
 
 
 def _redact(text: str) -> str:
@@ -148,12 +180,54 @@ def _redact(text: str) -> str:
 
 
 def _make_client():
+    """Return the stub, or the one cached bedrock-runtime client for this region."""
+    global _cached_client, _cached_region
     if _client_factory is not None:
         return _client_factory()
+    disable_ec2_metadata_for_bearer()
+    region = bedrock_region()
+    if _cached_client is not None and _cached_region == region:
+        return _cached_client
     import boto3
     # region_name is explicit. The bearer token stays in the environment:
     # boto3's bedrock-runtime client reads AWS_BEARER_TOKEN_BEDROCK itself.
-    return boto3.client("bedrock-runtime", region_name=bedrock_region())
+    _cached_client = boto3.client("bedrock-runtime", region_name=region)
+    _cached_region = region
+    return _cached_client
+
+
+def _failure_details(exc: BaseException) -> tuple[str, str, str]:
+    """Short code, request id, and a sentence safe to show in the chat.
+
+    The request id comes from the error response metadata when botocore
+    attached one. The raw exception text stays out of the sentence.
+    """
+    code = type(exc).__name__
+    request_id = ""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        err = response.get("Error") or {}
+        if err.get("Code"):
+            code = str(err["Code"])
+        meta = response.get("ResponseMetadata") or {}
+        if meta.get("RequestId"):
+            request_id = str(meta["RequestId"])
+    lowered = str(exc).lower()
+    if code == type(exc).__name__:
+        if "throttl" in lowered or "too many requests" in lowered:
+            code = "ThrottlingException"
+        elif "validation" in lowered:
+            code = "ValidationException"
+        elif isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+            code = "NetworkError"
+    code = "".join(ch for ch in code if ch.isalnum() or ch == "_")[:40] or "Error"
+    readable = {
+        "ThrottlingException": "Bedrock is busy right now.",
+        "ValidationException": "Bedrock rejected this request.",
+        "NetworkError": "Bedrock could not be reached.",
+        "Timeout": "Bedrock took too long.",
+    }.get(code, f"Bedrock could not answer ({code}).")
+    return code, _redact(request_id), readable
 
 
 def _audit_bedrock(
@@ -228,10 +302,20 @@ def _bedrock_converse(messages: List[Dict[str, Any]]) -> Optional[str]:
     global _last_error
     model = bedrock_model_id()
     region = bedrock_region()
-    started = time.perf_counter()
     request_id = ""
     try:
         client = _make_client()
+    except Exception as exc:
+        code, request_id, short = _failure_details(exc)
+        _last_error = short
+        _audit_bedrock(
+            result="error", model=model, region=region, request_id=request_id,
+            latency_ms=0, error=code,
+        )
+        log.warning("Bedrock client setup failed code=%s", code)
+        return None
+    started = time.perf_counter()
+    try:
         resp = client.converse(
             modelId=model,
             system=[{"text": SYSTEM_PROMPT}],
@@ -242,6 +326,10 @@ def _bedrock_converse(messages: List[Dict[str, Any]]) -> Optional[str]:
         parts = resp.get("output", {}).get("message", {}).get("content", []) or []
         text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
         latency_ms = int((time.perf_counter() - started) * 1000)
+        log.info(
+            "Bedrock Converse latency_ms=%s request_id=%s model=%s",
+            latency_ms, _redact(request_id), model,
+        )
         if not text:
             _last_error = "Bedrock returned no text"
             _audit_bedrock(
@@ -261,16 +349,45 @@ def _bedrock_converse(messages: List[Dict[str, Any]]) -> Optional[str]:
         return text
     except Exception as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
-        _last_error = _redact(f"{type(exc).__name__}: {exc}")
+        code, request_id, short = _failure_details(exc)
+        if not request_id:
+            request_id = ""
+        _last_error = short
         _audit_bedrock(
             result="error", model=model, region=region, request_id=request_id,
-            latency_ms=latency_ms, error=_last_error,
+            latency_ms=latency_ms, error=code,
         )
         log.warning(
-            "Bedrock Converse failed model=%s region=%s request_id=%s latency_ms=%s error=%s",
-            model, region, _redact(request_id), latency_ms, _last_error,
+            "Bedrock Converse failed model=%s region=%s request_id=%s latency_ms=%s code=%s",
+            model, region, request_id, latency_ms, code,
         )
         return None
+
+
+def timeout_fallback(latency_ms: int = 0) -> dict:
+    """Payload when the Converse wait expires before a response arrives."""
+    global _last_error
+    short = "Bedrock took too long."
+    _last_error = short
+    _audit_bedrock(
+        result="error",
+        model=bedrock_model_id(),
+        region=bedrock_region(),
+        request_id="",
+        latency_ms=max(0, int(latency_ms)),
+        error="Timeout",
+    )
+    return {
+        "bedrock": True,
+        "fallback": True,
+        "stopped": False,
+        "reason": "model_error",
+        "error_code": "Timeout",
+        "label": "Fallback: pattern parser (Bedrock error: Timeout)",
+        "message": short,
+        "text": "",
+        "calls": [],
+    }
 
 
 def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -283,10 +400,19 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
     global _last_error
     model = bedrock_model_id()
     region = bedrock_region()
-    started = time.perf_counter()
     request_id = ""
     try:
         client = _make_client()
+    except Exception as exc:
+        code, request_id, short = _failure_details(exc)
+        _last_error = short
+        _audit_bedrock(
+            result="error", model=model, region=region, request_id=request_id,
+            latency_ms=0, error=code,
+        )
+        return {"ok": False, "error": short, "error_code": code, "request_id": request_id}
+    started = time.perf_counter()
+    try:
         resp = client.converse(
             modelId=model,
             system=[{"text": AGENT_SYSTEM_PROMPT}],
@@ -296,6 +422,10 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
         )
         request_id = str((resp.get("ResponseMetadata") or {}).get("RequestId") or "")
         latency_ms = int((time.perf_counter() - started) * 1000)
+        log.info(
+            "Bedrock Converse latency_ms=%s request_id=%s model=%s",
+            latency_ms, _redact(request_id), model,
+        )
         _last_error = ""
         _audit_bedrock(
             result="ok", model=model, region=region, request_id=request_id,
@@ -306,16 +436,17 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
         return out
     except Exception as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
-        _last_error = _redact(f"{type(exc).__name__}: {exc}")
+        code, request_id, short = _failure_details(exc)
+        _last_error = short
         _audit_bedrock(
             result="error", model=model, region=region, request_id=request_id,
-            latency_ms=latency_ms, error=_last_error,
+            latency_ms=latency_ms, error=code,
         )
         log.warning(
-            "Bedrock agent Converse failed model=%s region=%s request_id=%s latency_ms=%s error=%s",
-            model, region, _redact(request_id), latency_ms, _last_error,
+            "Bedrock agent Converse failed model=%s region=%s request_id=%s latency_ms=%s code=%s",
+            model, region, request_id, latency_ms, code,
         )
-        return {"ok": False, "error": _last_error}
+        return {"ok": False, "error": short, "error_code": code, "request_id": request_id}
 
 
 def _messages(*user_payloads: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -338,8 +469,9 @@ def narrate(flow: str, facts: Dict[str, Any], fallback: str) -> str:
     try:
         text = _bedrock_converse(msgs)
     except Exception as exc:
-        _last_error = _redact(f"{type(exc).__name__}: {exc}")
-        log.warning("Bedrock narration failed: %s", _last_error)
+        _code, _request_id, short = _failure_details(exc)
+        _last_error = short
+        log.warning("Bedrock narration failed code=%s", _code)
         return fallback
     return text if text else fallback
 
