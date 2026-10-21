@@ -1,10 +1,12 @@
-## 2026-10-21 03:50 — Lead 產品級 sweep round 5（3 子代理並行審查）
+## 2026-10-21 04:15 — Lead 產品級 sweep round 5 完結 — commit `a2f3b75`，三重閘門 56 / 19 ALL PASS / 20/20 全綠
 - **P0 修**：requirements.txt 補 `fastapi>=0.110` + `httpx>=0.26`（web/app.py 必需依賴缺失，fresh clone 的 README quickstart 第 2 行會 ModuleNotFoundError）。
-- **P1 修**：tools/final_e2e.py 補 `SER_NO_RATE_LIMIT=1`（新 token bucket 令預設跑法在 A5 吃 429 flake；對齊 test_server.py 做法）。CLI E2E 重跑 **19/19 ALL PASS**exit=0，三連跑無 flake。
-- **P1 修**（docs truth-sync）：51→**56 passed**（test_accountability.py 5 條入冊 + test_server 實為 8 非 18）；工具數 6→**8**（schedule_audit_get + verify_audit_chain）；SUBMISSION_CHECKLIST 同步。
-- **P1 修**（repo hygiene）：.gitignore 重寫（*.db / _shot_*.png / .pytest_cache），`git rm --cached server.db equipment.db`，刪除 legacy equipment.db 與根目錄暫存探針 qa_card_probe.py。
-- Sidecars 清潔：8765/8080 stale 伺服器已清；/metrics 實測（uptime/WAL/audit_chain ok）、403 evil-origin 實測、audit 邊界輸入（limit≤0 / 超界 before_id / SQL 注入字串 / 研究員越權 verify_audit_chain→forbidden）全乾淨。
-- 待收：後端深審 + 前端深審子代理報告（audit 功能產品級覆核）。
+- **P1 修**：tools/final_e2e.py 補 `SER_NO_RATE_LIMIT=1`（新 token bucket 令預設跑法在 A5 吃 429 flake，重現兩次；修後無環境變數裸跑 exit=0）。
+- **P1 修**（docs truth-sync）：51→**56 passed**（test_accountability.py 5 條入冊 + test_server 實為 8 非 18）、工具 6→**8**（schedule_audit_get + verify_audit_chain 多列表格）、SUBMISSION_CHECKLIST 同步。
+- **P1 修**（repo hygiene）：.gitignore 重寫（*.db / _shot_*.png / .pytest_cache），server.db / equipment.db 已 rm --cached，legacy equipment.db 與根目錄暫存探針 qa_card_probe.py 刪除。
+- **UI 深審修**（前端子代理 4 條）：audit auto-refresh 保 scroll 位置、auditJsonStore 邊界（repaint 時 clear）、load-older 鈕 in-flight disabled、audit-wrap 加 aria-live=polite；子代理實測 XSS 全 escape、transport_error 優雅訊息、780px 零溢出、30x 刷新零錯誤。
+- **後端深審證據**（lead 實測 /mcp）：audit 邊界（limit 0/-5/1e9 → invalid_argument；before_id 越界/-1 → invalid_argument；SQL 注入字串無害）＝參數化、研究員隔離（真 private rows 不可見）、verify_audit_chain manager-only（研究員 forbidden）、403 origin/host guard、/metrics WAL + audit_chain ok、鏈驗證器容忍 retention 前綴間隙。
+- 提交 `a2f3b75`（19 files, +2815/−57）後在提交樹上重跑：**pytest 56/56 · CLI E2E 19/19 ALL PASS exit=0 · browser E2E 20/20**；stray 伺服器已清（8765/8080 乾淨）。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交。期限 2026-10-23。
 
 
 - Freeze-time verification against current working tree (incl. uncommitted local-font @font-face additions by user/Partner):
