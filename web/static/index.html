@@ -609,6 +609,9 @@
             }
         }
         let inflight = false;
+        // MCP calls set inflight. A slow /agent/step does not, so the idle
+        // gate also watches this counter for the whole tool loop.
+        let agentInflight = 0;
 
         function logMCP(direction, method, status = '', note = '') {
             // The first real entry replaces the "System: not connected"
@@ -1672,29 +1675,30 @@
             holdChatMode = false;
             speechTurn = !!fromSpeech;
             addMessage(text, 'system');
-            if (bedrockOn) runAgentLoop(text);
-            else runPatternParser(text);
+            if (bedrockOn) return runAgentLoop(text);
+            return Promise.resolve(runPatternParser(text));
         }
 
         // The hook, the mic, and ?utterance= all wait for the same gate:
         // an MCP session, a loaded schedule, a resolved Bedrock label, and
-        // no call still in flight. loadSchedule starts the audit-chain read
-        // without waiting, so a turn that starts the moment the board
+        // no call still in flight. That includes a pending /agent/step,
+        // which does not set inflight. loadSchedule starts the audit-chain
+        // read without waiting, so a turn that starts the moment the board
         // appears used to hit that call and come back busy.
         async function waitUntilIdle(limitMs) {
             const limit = limitMs == null ? 20000 : limitMs;
             const start = Date.now();
             let quiet = 0;
             while (Date.now() - start < limit) {
-                if (inflight || !client || !lastSchedule || !bedrockResolved) quiet = 0;
+                if (inflight || agentInflight || !client || !lastSchedule || !bedrockResolved) quiet = 0;
                 else quiet += 1;
                 if (quiet >= 3) return;
                 await new Promise((r) => setTimeout(r, 40));
             }
         }
 
-        // One page, one utterance at a time. Two hook calls in the same
-        // turn used to start two loops and collide on the in-flight guard.
+        // One page, one utterance at a time. The queue awaits the tool loop,
+        // so a slow Converse call cannot overlap the next hook.
         let utteranceChain = Promise.resolve();
         function deliverUtterance(text) {
             const run = utteranceChain.then(() => runOneUtterance(text));
@@ -1705,7 +1709,7 @@
         async function runOneUtterance(text) {
             await sessionReady;
             await waitUntilIdle();
-            onFinalUtterance(text);
+            await onFinalUtterance(text);
             await waitUntilIdle();
         }
 
@@ -1716,7 +1720,7 @@
             const box = $('liveTranscript');
             if (box) box.textContent = raw;
             if (!/^\s*alexa\b/i.test(raw)) return;
-            dispatchCommand(raw, true);
+            return dispatchCommand(raw, true);
         }
 
         // Simulation hook. This is not a microphone and not a cloud speech
@@ -1871,6 +1875,8 @@
             let rounds = 0;
             let executions = 0;
             const speak = speechTurn;
+            let recordedOutage = null;
+            agentInflight += 1;
             try {
                 while (rounds < 4 && executions < 4) {
                     const posted = await postAgent('/agent/step', {
@@ -1883,16 +1889,14 @@
                         holdChatMode = true;
                         const mode = $('chatMode');
                         if (mode) mode.textContent = 'Fallback: pattern parser (rate limit)';
-                        runPatternParser(text);
-                        return;
+                        return await runPatternParser(text, recordedOutage);
                     }
                     const res = posted.data;
                     if (!res || res.bedrock === false) {
                         bedrockOn = false;
                         const mode = $('chatMode');
                         if (mode) mode.textContent = 'Fallback: pattern parser (Bedrock off)';
-                        runPatternParser(text);
-                        return;
+                        return await runPatternParser(text, recordedOutage);
                     }
                     if (res.fallback) {
                         const mode = $('chatMode');
@@ -1903,8 +1907,7 @@
                         }
                         holdChatMode = true;
                         if (res.message) addMessage(res.message, 'outage-message', speak);
-                        runPatternParser(text);
-                        return;
+                        return await runPatternParser(text, recordedOutage);
                     }
                     if (res.assistant_message) messages.push(res.assistant_message);
                     if (typeof res.rounds === 'number') rounds = res.rounds;
@@ -1926,6 +1929,13 @@
                         }
                         const result = await safeCall(call.name, call.input || {});
                         executions += 1;
+                        if (call.name === 'equipment_report_outage'
+                            && result && result.status === 'recorded' && result.outage_id) {
+                            recordedOutage = {
+                                id: result.outage_id,
+                                version: result.schedule_version,
+                            };
+                        }
                         if (call.name === 'schedule_propose_replan' && result && result.plan_id) {
                             lastProposals.set(result.plan_id, result);
                             if (result.outage_id) lastProposals.set(result.outage_id, result);
@@ -1955,12 +1965,17 @@
                 addMessage('Stopped after 4 steps.', 'system');
                 await loadSchedule();
             } finally {
+                agentInflight -= 1;
                 speechTurn = false;
             }
         }
 
-        function runPatternParser(text) {
+        function runPatternParser(text, priorOutage) {
             const speak = speechTurn;
+            if (priorOutage && priorOutage.id) {
+                addMessage('Outage ' + priorOutage.id + ' is already in this turn. Proposing a replan.', 'system', speak);
+                return proposeFlow(priorOutage.id, priorOutage.version);
+            }
             const t = text.toLowerCase();
             const mA = /\bconfocal[- ]?a\b/.test(t);
             const mB = /\bconfocal[- ]?b\b/.test(t);
@@ -1998,7 +2013,7 @@
                 addMessage('Understood \u2014 reporting ' + (eq === 'confocal-a' ? 'Confocal A' : 'Confocal B') +
                     ' down from ' + String(startH).padStart(2, '0') + ':' + startM + ' to ' +
                     String(endH).padStart(2, '0') + ':' + endM + ' today.', 'ai', speak);
-                doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00' + DEMO_OFFSET,
+                return doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00' + DEMO_OFFSET,
                     DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00' + DEMO_OFFSET);
             } else if (/\bapply\b/.test(t)) {
                 // Word-boundary match: a plain indexOf('apply') also fired on

@@ -298,7 +298,8 @@ def test_bedrock_client_is_cached(monkeypatch):
     assert config.connect_timeout == 5
     assert config.read_timeout == 20
     assert config.retries["mode"] == "standard"
-    assert config.retries["max_attempts"] == 2
+    assert config.retries["total_max_attempts"] == 2
+    assert "max_attempts" not in config.retries
 
 
 def test_abandoned_converse_skips_a_late_ok_row(monkeypatch, tmp_path):
@@ -352,6 +353,10 @@ def test_voice_stub_reports_then_proposes_then_applies(monkeypatch):
         use = first["output"]["message"]["content"][0]["toolUse"]
         assert use["name"] == "equipment_report_outage"
         assert use["input"]["equipment_id"] == "confocal-a"
+        from mcp_server.constants import DEMO_DATE
+        from mcp_server.timeutil import local_iso
+        assert use["input"]["start"] == local_iso(DEMO_DATE, "10:00")
+        assert use["input"]["end"] == local_iso(DEMO_DATE, "16:00")
         messages = [
             {"role": "user", "content": [{"text": "hi"}]},
             first["output"]["message"],
@@ -387,6 +392,51 @@ def test_voice_stub_reports_then_proposes_then_applies(monkeypatch):
     finally:
         llm.set_client_factory(None)
         llm._voice_demo_client = None
+
+
+def test_voice_stub_badge_and_audit_say_stub(monkeypatch, tmp_path):
+    token = "bearer-secret-do-not-log"
+    monkeypatch.setenv("SER_LLM_MODE", "scripted")
+    monkeypatch.setenv("SER_BEDROCK_STUB", "voice")
+    monkeypatch.delenv("SER_BEDROCK_STUB_DELAY", raising=False)
+    llm.set_client_factory(None)
+    llm._voice_demo_client = None
+    llm._cached_client = None
+    assert llm.bedrock_label() == "Bedrock: off"
+    monkeypatch.setenv("SER_LLM_MODE", "bedrock")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", token)
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    llm.set_client_factory(lambda: object())
+    try:
+        assert llm.voice_stub_selected() is False
+        assert llm.bedrock_label() == "Bedrock: on (amazon.nova-lite-v1:0, us-east-1)"
+    finally:
+        llm.set_client_factory(None)
+    _init_db(monkeypatch, tmp_path)
+    llm._voice_demo_client = None
+    try:
+        assert llm.bedrock_label() == "Bedrock: STUB (test)"
+        status = llm.bedrock_status()
+        assert status["on"] is True
+        assert status["model"] == "stub"
+        assert status["stub"] is True
+        out = llm.agent_converse(
+            [{"role": "user", "content": [{"text": "Alexa, Confocal A is down"}]}],
+            {"tools": []},
+        )
+    finally:
+        llm.set_client_factory(None)
+        llm._voice_demo_client = None
+    assert out["ok"] is True
+    from mcp_server import db as dbm
+    rows = dbm.audit_entries(limit=5, tool="bedrock_converse")
+    assert rows and rows[0]["result"] == "ok"
+    blob = (rows[0]["detail"] or "") + (rows[0]["detail_json"] or "") + (rows[0]["token_hint"] or "")
+    assert "provider=stub" in blob
+    assert "model=stub" in blob
+    assert "amazon.nova" not in blob
+    assert token not in blob
 
 
 def test_schedule_get_skips_bedrock_unless_narration_is_requested(monkeypatch, tmp_path):

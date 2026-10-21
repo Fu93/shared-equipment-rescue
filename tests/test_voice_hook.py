@@ -33,6 +33,9 @@ def test_page_uses_web_speech_and_the_simulation_hook():
     assert "Fallback: pattern parser (rate limit)" in html
     assert "The assistant is busy. Waiting a moment, then trying again." in html
     assert "utteranceChain" in html
+    assert "agentInflight" in html
+    assert "return runAgentLoop(text)" in html
+    assert "await onFinalUtterance(text)" in html
     assert "light: true" in html
     assert "server_audit_tool" in html
     assert "'completed'" in html
@@ -325,6 +328,8 @@ async def _confirm_under_limit():
             assert not limited, limited
             body = await page.inner_text("body")
             assert "bearer-secret-do-not-log" not in body
+            assert "Bedrock: STUB (test)" in body
+            assert "Bedrock: on (amazon.nova" not in body
             assert not errors, errors
             await browser.close()
     finally:
@@ -470,6 +475,199 @@ async def _routed_429():
             assert mode == "Fallback: pattern parser (rate limit)"
             assert "The assistant is busy. Waiting a moment, then trying again." in chat
             assert "not-json" not in chat
+            assert not errors, errors
+            await browser.close()
+    finally:
+        _stop(mcp, web, boot)
+
+
+@pytest.mark.skipif(not _playwright_available(), reason="no browser available in this environment")
+def test_slow_stub_keeps_back_to_back_hooks_from_overlapping():
+    import asyncio
+    asyncio.run(_slow_double_hook())
+
+
+async def _slow_double_hook():
+    import tempfile
+
+    from playwright.async_api import async_playwright
+
+    dbp = os.path.join(tempfile.gettempdir(), f"ser_voice_slow_{os.getpid()}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+    env = _base_env(dbp)
+    env["SER_LLM_MODE"] = "bedrock"
+    env["AWS_BEARER_TOKEN_BEDROCK"] = "bearer-secret-do-not-log"
+    env["AWS_REGION"] = "us-east-1"
+    env["BEDROCK_MODEL_ID"] = "amazon.nova-lite-v1:0"
+    env["SER_BEDROCK_STUB"] = "voice"
+    env["SER_BEDROCK_STUB_DELAY"] = "0.3"
+    env["SER_NO_RATE_LIMIT"] = "1"
+    boot_source = (
+        "import os, sys, uvicorn\n"
+        f"sys.path.insert(0, {ROOT!r})\n"
+        f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+        "os.environ['SER_DEMO_DATE'] = '2026-10-20'\n"
+        "os.environ['SER_DEMO_TZ'] = 'Europe/London'\n"
+        "os.environ['SER_LLM_MODE'] = 'bedrock'\n"
+        "os.environ['AWS_BEARER_TOKEN_BEDROCK'] = 'bearer-secret-do-not-log'\n"
+        "os.environ['AWS_REGION'] = 'us-east-1'\n"
+        "os.environ['BEDROCK_MODEL_ID'] = 'amazon.nova-lite-v1:0'\n"
+        "os.environ['SER_BEDROCK_STUB'] = 'voice'\n"
+        "os.environ['SER_BEDROCK_STUB_DELAY'] = '0.3'\n"
+        "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
+        "from mcp_server.server import build_app\n"
+        "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+    )
+    mcp, web, url, boot = _spawn(env, boot_source)
+    try:
+        await _wait_ready(url)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda err: errors.append(str(err)))
+            await page.goto(url, wait_until="domcontentloaded")
+            await page.wait_for_function(
+                "() => typeof window.serSimulateUtterance === 'function'",
+                timeout=20000,
+            )
+            await page.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v1'",
+                timeout=20000,
+            )
+            # Do not return the promises. The first loop blocks on Confirm,
+            # and Playwright would wait if evaluate returned them.
+            await page.evaluate(
+                """() => {
+                    window.serSimulateUtterance('Alexa, Confocal A is down until 4pm');
+                    window.serSimulateUtterance('Alexa, Confocal A is down until 4pm');
+                }"""
+            )
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const card = document.getElementById('confirmCard');
+                        const badge = document.getElementById('verBadge');
+                        return card && !card.classList.contains('hidden')
+                            && badge && badge.textContent === 'v2';
+                    }""",
+                    timeout=25000,
+                )
+            except Exception:
+                body = await page.inner_text("body")
+                raise AssertionError(body[:2500])
+            await page.wait_for_timeout(1200)
+            chat = await page.locator(".chat-messages").inner_text()
+            assert chat.count("equipment_report_outage") == 1, chat
+            assert chat.count("schedule_propose_replan") == 1, chat
+            assert "duplicate_outage" not in chat
+            assert "already recorded" not in chat
+            assert "Nothing changed" not in chat
+            assert "already in flight" not in chat
+            assert "\u2192 busy" not in chat
+            assert "busy" not in chat.lower()
+            assert "Bedrock: STUB (test)" in await page.inner_text("body")
+            assert not errors, errors
+            await browser.close()
+    finally:
+        _stop(mcp, web, boot)
+
+
+@pytest.mark.skipif(not _playwright_available(), reason="no browser available in this environment")
+def test_partial_bedrock_failure_proposes_the_recorded_outage():
+    import asyncio
+    asyncio.run(_partial_failure_proposes())
+
+
+async def _partial_failure_proposes():
+    import json
+    import tempfile
+
+    from playwright.async_api import async_playwright
+
+    dbp = os.path.join(tempfile.gettempdir(), f"ser_voice_partial_{os.getpid()}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+    env = _base_env(dbp)
+    env["SER_LLM_MODE"] = "bedrock"
+    env["AWS_BEARER_TOKEN_BEDROCK"] = "bearer-secret-do-not-log"
+    env["AWS_REGION"] = "us-east-1"
+    env["BEDROCK_MODEL_ID"] = "amazon.nova-lite-v1:0"
+    env["SER_BEDROCK_STUB"] = "voice"
+    env["SER_NO_RATE_LIMIT"] = "1"
+    boot_source = (
+        "import os, sys, uvicorn\n"
+        f"sys.path.insert(0, {ROOT!r})\n"
+        f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+        "os.environ['SER_DEMO_DATE'] = '2026-10-20'\n"
+        "os.environ['SER_DEMO_TZ'] = 'Europe/London'\n"
+        "os.environ['SER_LLM_MODE'] = 'bedrock'\n"
+        "os.environ['AWS_BEARER_TOKEN_BEDROCK'] = 'bearer-secret-do-not-log'\n"
+        "os.environ['AWS_REGION'] = 'us-east-1'\n"
+        "os.environ['BEDROCK_MODEL_ID'] = 'amazon.nova-lite-v1:0'\n"
+        "os.environ['SER_BEDROCK_STUB'] = 'voice'\n"
+        "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
+        "from mcp_server.server import build_app\n"
+        "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+    )
+    mcp, web, url, boot = _spawn(env, boot_source)
+    try:
+        await _wait_ready(url)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda err: errors.append(str(err)))
+            seen = {"n": 0}
+
+            async def step_route(route):
+                seen["n"] += 1
+                if seen["n"] == 1:
+                    await route.continue_()
+                    return
+                await route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "bedrock": True,
+                        "fallback": True,
+                        "stopped": False,
+                        "reason": "model_error",
+                        "error_code": "Timeout",
+                        "label": "Fallback: pattern parser (Bedrock error: Timeout)",
+                        "message": "Bedrock took too long.",
+                        "text": "",
+                        "calls": [],
+                    }),
+                )
+
+            await page.route("**/agent/step", step_route)
+            from urllib.parse import quote
+            await page.goto(
+                url + "/?utterance=" + quote("Alexa, Confocal A is down until 4pm"),
+                wait_until="domcontentloaded",
+            )
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const chat = document.querySelector('.chat-messages');
+                        return chat && chat.innerText.indexOf('Replan proposed') !== -1;
+                    }""",
+                    timeout=25000,
+                )
+            except Exception:
+                body = await page.inner_text("body")
+                raise AssertionError(body[:2500])
+            chat = await page.locator(".chat-messages").inner_text()
+            assert "Replan proposed" in chat
+            assert "Nothing changed" not in chat
+            assert "duplicate_outage" not in chat
+            assert "already recorded" not in chat
+            badge = await page.text_content("#bedrockLabel")
+            assert badge == "Bedrock: STUB (test)"
             assert not errors, errors
             await browser.close()
     finally:

@@ -33,6 +33,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from .constants import DEMO_DATE, DEMO_TZ, UNIT_NAME
+from .timeutil import local_iso
 
 log = logging.getLogger("ser.llm")
 
@@ -111,21 +112,39 @@ def llm_mode() -> str:
     return "bedrock" if _has_aws_credentials() else "scripted"
 
 
+STUB_BADGE = "Bedrock: STUB (test)"
+
+
+def voice_stub_selected() -> bool:
+    """True when SER_BEDROCK_STUB=voice will answer instead of AWS.
+
+    A test factory installed with set_client_factory wins over the env stub,
+    so those tests keep the real model name in their audit rows.
+    """
+    if _client_factory is not None:
+        return False
+    return (os.environ.get("SER_BEDROCK_STUB") or "").strip() == "voice"
+
+
 def bedrock_label() -> str:
-    """Exact UI strings: 'Bedrock: off' or 'Bedrock: on (model, region)'."""
+    """Exact UI strings: off, on (model, region), or the test stub badge."""
     if llm_mode() != "bedrock":
         return "Bedrock: off"
+    if voice_stub_selected():
+        return STUB_BADGE
     return f"Bedrock: on ({bedrock_model_id()}, {bedrock_region()})"
 
 
 def bedrock_status() -> dict:
     """Status for /metrics and the web label. Never includes a credential."""
     on = llm_mode() == "bedrock"
+    stub = on and voice_stub_selected()
     return {
         "label": bedrock_label(),
         "on": on,
-        "model": bedrock_model_id() if on else None,
+        "model": "stub" if stub else (bedrock_model_id() if on else None),
         "region": bedrock_region() if on else None,
+        "stub": stub,
         "error": _last_error or None,
     }
 
@@ -205,15 +224,28 @@ def _make_client():
         config=Config(
             connect_timeout=5,
             read_timeout=20,
-            retries={"mode": "standard", "max_attempts": 2},
+            # max_attempts counts retries after the first call, so 2 would
+            # be 3 tries. total_max_attempts is the whole budget.
+            retries={"mode": "standard", "total_max_attempts": 2},
         ),
     )
     _cached_region = region
     return _cached_client
 
 
+def _stub_delay_seconds() -> float:
+    """SER_BEDROCK_STUB_DELAY is a test-only pause. Unset means no pause."""
+    raw = (os.environ.get("SER_BEDROCK_STUB_DELAY") or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 0.0
+
+
 def _voice_demo():
-    """Zero-latency tool script for tests. Never calls AWS."""
+    """Tool script for tests. Never calls AWS. Delay comes from the env."""
     global _voice_demo_client
     if _voice_demo_client is None:
         _voice_demo_client = _VoiceDemoClient()
@@ -287,13 +319,16 @@ class _VoiceDemoClient:
     """One demo turn: report the outage, propose, then apply for Confirm."""
 
     def converse(self, **kwargs):
+        delay = _stub_delay_seconds()
+        if delay:
+            time.sleep(delay)
         messages = kwargs.get("messages") or []
         results = _tool_result_texts(messages)
         if not results:
             return _tool_response("equipment_report_outage", {
                 "equipment_id": "confocal-a",
-                "start": "2026-10-20T10:00:00+01:00",
-                "end": "2026-10-20T16:00:00+01:00",
+                "start": local_iso(DEMO_DATE, "10:00"),
+                "end": local_iso(DEMO_DATE, "16:00"),
                 "reason": "Reported via the voice stub",
             }, "voice-1")
         if not _assistant_called(messages, "schedule_propose_replan"):
@@ -382,13 +417,18 @@ def _audit_bedrock(
         timestamp = ""
     request_id = _redact(request_id or "")
     error = _redact(error or "")
+    provider = "bedrock"
+    if voice_stub_selected():
+        provider = "stub"
+        model = "stub"
     detail = (
-        f"model={model} region={region} request_id={request_id} "
+        f"provider={provider} model={model} region={region} request_id={request_id} "
         f"latency_ms={latency_ms} timestamp={timestamp}"
     )
     if error:
         detail += f" error={error}"
     extras = {
+        "provider": provider,
         "model": model,
         "region": region,
         "request_id": request_id,

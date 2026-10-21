@@ -170,9 +170,9 @@ class _TokenBucket:
             self.updated.pop(k, None)
 
 
-# Flood budget for MCP traffic: ~4 req/s sustained, burst 16. A voice turn
-# also polls /metrics and posts /agent/step and /agent/result. Those share a
-# separate, still bounded budget so they do not spend the flood bucket.
+# Flood budget for MCP traffic: ~4 req/s sustained, burst 16. Board polls
+# and /agent posts use a second bucket so they do not spend the flood one.
+# Both buckets are keyed by client IP address, not by browser session.
 # Tests disable both via SER_NO_RATE_LIMIT=1, checked per request.
 _RATE_LIMIT = _TokenBucket(rate_per_sec=4.0, burst=16)
 _SESSION_RATE = _TokenBucket(rate_per_sec=20.0, burst=40)
@@ -232,7 +232,8 @@ def _db_facts() -> dict:
 def _session_aux_request(scope) -> bool:
     """Board polls and the voice loop's own agent posts.
 
-    They are limited on _SESSION_RATE, not on the MCP flood bucket.
+    They use the second per-IP bucket, not the MCP flood bucket. The key is
+    still the client IP address.
     """
     path = (scope.get("path") or "").rstrip("/")
     method = scope.get("method") or ""
