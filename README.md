@@ -150,11 +150,11 @@ observability endpoint exists on both layers (MCP :8765 and the web proxy
 version, table row counts and journal mode — JSON, `no-store`, before any MCP
 session resources are consumed. The UI ships a **deep link** (`/#audit` /
 `/?view=audit`) that opens the audit tab pre-connect, covered by a
-**Playwright suite** (25 browser checks covering the full outage→propose→confirm→apply loop: identity select, panels, equipment report, dev console, confirm card, decline path, applied v3, responsive layout - mutation-verified: each check was shown to fail when its defect is injected).
+**Playwright suite** (28 browser checks covering the full outage→propose→confirm→apply loop: identity select, panels, equipment report, dev console, confirm card, decline path, applied v3, responsive layout - mutation-verified: each check was shown to fail when its defect is injected).
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 66 passed
+python -X utf8 -m pytest tests/ -q      # 67 passed
 ```
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
@@ -164,6 +164,7 @@ python -X utf8 -m pytest tests/ -q      # 66 passed
 - `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
 - `test_accountability.py` (7): real-client audit-trail checks — researcher public-visibility SQL boundary, concurrent double-apply applies exactly once (TOCTOU), 403 origin/host rejections land in the hash-chained transport ledger, the ledger survives `reset_demo_data`, a replayed apply leaves an audit row with the chain verifying green, audit pagination drops no row at any page boundary (limit 1/2/3 walks over 5 seeded rows), and `debug_confirm` elicitation outcomes are audited.
 - `test_web_proxy.py` (6): the `web/` layer — loopback `Origin`/`Host` accepted on any port, foreign hosts/origins still 403, a real MCP client relayed through the proxy sees all 8 tools and a working `schedule_get`, `/metrics` aggregates both layers, and a dead upstream returns 502 with a restart hint.
+- `test_video_walk.py` (1, 27 scene checks): drives the real UI through **the demo video script beat by beat** — the six bookings and two confocals, the version bump to v2 with the outage banner, both proposed moves with machine-readable reasons, the confirm card naming the human-in-the-loop rule, Cancel leaving the version untouched, Confirm reaching v3, the identity switch masking other people's slots as "Occupied", and the audit tab with zone-labelled timestamps — so the recording cannot show something the narration does not claim. Needs Playwright; skips cleanly where no browser can launch.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 
