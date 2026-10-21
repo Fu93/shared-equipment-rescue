@@ -134,22 +134,30 @@ def validate_transport_headers(request: Request) -> Optional[str]:
 
 
 @app.get("/")
-async def serve_home() -> HTMLResponse:
-    """Serve the main HTML page."""
+async def serve_home(request: Request) -> HTMLResponse:
+    """Serve the main HTML page (same Origin/Host policy as /mcp)."""
+    denial = validate_transport_headers(request)
+    if denial is not None:
+        return JSONResponse({"error": denial}, status_code=403)
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"),
               "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
 @app.get("/metrics")
-async def serve_metrics() -> Response:
+async def serve_metrics(request: Request) -> Response:
     """Aggregated observability: proxy self + upstream MCP /metrics.
 
-    Same-origin HTML/JS (and a local curl) can scrape one endpoint for the
-    whole stack: process uptime + flood budget here, database shape and
-    chain/audit state from the server. Aggregation is best-effort — if the
-    MCP server is down, its section reports the failure instead of 500ing.
+    Same Origin/Host policy as /mcp — a DNS-rebinding page must not read
+    chain heads / row counts from this endpoint either. Same-origin HTML/JS
+    (and a local curl) can scrape one endpoint for the whole stack: process
+    uptime + flood budget here, database shape and chain/audit state from
+    the server. Aggregation is best-effort — if the MCP server is down, its
+    section reports the failure instead of 500ing.
     """
+    denial = validate_transport_headers(request)
+    if denial is not None:
+        return JSONResponse({"error": denial}, status_code=403)
     import time as _t
     if not _started_mono:
         return JSONResponse({"error": "not initialized"}, status_code=503)

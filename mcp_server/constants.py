@@ -32,3 +32,12 @@ TOKEN_WANG = "tok-wang"
 TOKEN_LI = "tok-li"
 
 DB_KEY_VERSION = "schedule_version"
+
+# Audit tools whose events are public: visible to every authenticated user in
+# the audit trail (researchers additionally see their own actions). Single
+# source of truth — imported by both db.audit_entries (SQL boundary) and
+# server.schedule_audit_get (Python filter); they must never diverge.
+PUBLIC_AUDIT_TOOLS = frozenset({
+    "equipment_report_outage", "schedule_propose_replan",
+    "schedule_apply_replan", "reset_demo_data",
+})

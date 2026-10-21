@@ -513,7 +513,12 @@ def _forbidden_ctx(version: int) -> str:
 
 
 def _token_hint(ctx: Context) -> str:
-    """First 4 chars of the bearer token for audit rows (never the secret)."""
+    """Non-identifying hint for audit rows (never the secret).
+
+    Demo tokens share the "tok-" prefix, so hinting the first 4 chars yields
+    the same useless string on every row ("tok-…"); hint the discriminative
+    suffix instead ("manager", "chen"…). Unknown shapes keep a generic hint.
+    """
     rc = ctx.request_context if ctx is not None else None
     req = getattr(rc, "request", None) if rc is not None else None
     if req is None:
@@ -522,7 +527,11 @@ def _token_hint(ctx: Context) -> str:
     parts = auth.strip().split(" ", 1)
     if len(parts) == 2 and parts[0].lower() == "bearer":
         tok = parts[1].strip()
-        return (tok[:4] + "…") if len(tok) > 4 else "…"
+        if tok and len(tok) > 4:
+            if tok.startswith("tok-"):
+                return tok[4:8] + ("…" if len(tok) > 8 else "")
+            return tok[:4] + "…"
+        return "…"
     return "none"
 
 
@@ -1617,17 +1626,24 @@ async def schedule_audit_get(
         tool=tool_filter or None,
     )
     # Public events always visible to researchers: outages, replans, applies, resets.
-    PUBLIC_TOOLS = {"equipment_report_outage", "schedule_propose_replan",
-                    "schedule_apply_replan", "reset_demo_data"}
+    # Single source of truth lives in constants.PUBLIC_AUDIT_TOOLS (imported by
+    # db.audit_entries for the SQL boundary too) — the two copies must never
+    # diverge or researcher pagination lookahead desyncs from visibility.
+    PUBLIC_TOOLS = C.PUBLIC_AUDIT_TOOLS
 
     def visible(r: dict) -> bool:
         return is_manager or r["actor_id"] == p.user_id or r["tool"] in PUBLIC_TOOLS
 
     page = [r for r in rows if visible(r)]
-    next_before_id = None
-    if len(rows) > max(1, min(int(limit), 200)) and page:
-        next_before_id = page[-1]["id"]  # resume from last visible row
-    page = page[: max(1, min(int(limit), 200))]
+    # keyset pagination: entries beyond the requested limit belong to the next
+    # page. Cursor must be the last row actually RETURNED by the fetch
+    # (rows[-1]) — computed from the un-truncated fetch — while the visible
+    # page is cut to `limit`. Pointing the cursor at page[-1] instead (the
+    # pre-fix behavior) skipped that row on the next page because the next
+    # query is strictly id < cursor.
+    has_more = len(page) > limit
+    next_before_id = page[limit - 1]["id"] if (has_more and limit >= 1) else None
+    page = page[:limit]
     def _parse_dj(raw) -> Optional[dict]:
         if not raw:
             return None
@@ -1721,6 +1737,7 @@ async def verify_audit_chain(ctx: Context = None) -> ChainVerifyResult:
 async def debug_confirm(ctx: Context = None) -> ConfirmResult:
     """M0 verification: send one elicitation and report exactly what the client answered."""
     ensure_ready()
+    p = _principal(ctx)
     try:
         res = await ctx.elicit(
             "Debug: please confirm.", ConfirmModel
@@ -1728,6 +1745,10 @@ async def debug_confirm(ctx: Context = None) -> ConfirmResult:
         confirm = None
         if res.action == "accept" and res.data is not None:
             confirm = bool(res.data.confirm)
+        # audited like every other elicitation outcome (decline /
+        # not_supported are distinct results, never invisible to the trail)
+        _audit("debug_confirm", res.action, p,
+               f"elicitation action={res.action!r} confirm={confirm}", ctx)
         return ConfirmResult(
             elicited=True,
             action=res.action,
@@ -1735,6 +1756,8 @@ async def debug_confirm(ctx: Context = None) -> ConfirmResult:
             message=f"client answered action={res.action!r}",
         )
     except Exception as exc:
+        _audit("debug_confirm", "not_supported", p,
+               f"elicitation not supported: {type(exc).__name__}: {exc}", ctx)
         return ConfirmResult(
             elicited=False,
             action="not_supported",

@@ -607,11 +607,7 @@ def audit_entries(
             params.append(before_id)
         if actor_id:
             where.append("(actor_id = ? OR tool IN (?,?,?,?))")
-            params.extend([
-                actor_id,
-                "equipment_report_outage", "schedule_propose_replan",
-                "schedule_apply_replan", "reset_demo_data",
-            ])
+            params.extend([actor_id, *sorted(C.PUBLIC_AUDIT_TOOLS)])
         if tool:
             where.append("tool = ?")
             params.append(tool)
@@ -761,6 +757,13 @@ def record_transport_event_standalone(
     Called from TransportGuardMiddleware._reject on the request path — it must
     be fast (own short txn, no long lock) and must NEVER break or delay the
     HTTP response itself.
+
+    Unlike record_audit_standalone, this holds a process-local lock in
+    addition to SQLite BEGIN IMMEDIATE: bursts of 403/429 rows can arrive
+    concurrently from many handlers in one process, and relying on the
+    SQLite busy-timeout alone would serialize them only via retry storms.
+    The in-process lock keeps the read-prev-hash + insert strictly ordered;
+    cross-process safety is still BEGIN IMMEDIATE.
     """
     try:
         with _transport_write_lock:

@@ -63,7 +63,7 @@ Identity comes **only** from the per-request header — never from tool argument
 | `equipment_report_outage` | **yes** | manager-only; duplicates rejected |
 | `schedule_propose_replan` | no (creates plan row) | stale-check + idempotent plan_id |
 | `schedule_apply_replan` | **yes** | **elicitation-gated**; human confirm required |
-| `schedule_audit_get` | no | **who did what, when** — managers see the full trail; researchers see own actions + public events (outages, replans, applies, resets). Token hints are truncated (`tok-…`), never a full secret. |
+| `schedule_audit_get` | no | **who did what, when** — managers see the full trail; researchers see own actions + public events (outages, replans, applies, resets). Token hints show only a truncated non-identifying fragment (`manager…`, `chen…`), never a full secret. |
 | `verify_audit_chain` | no | manager-only; recomputes the SHA-256 hash chain over the audit trail and flags any edit, deletion or splice (`broken_at` row). |
 | `reset_demo_data` | **yes** | manager-only; restores seed schedule (version 1); clears the audit trail and records the reset itself as the final entry |
 | `debug_confirm` | no | echoes elicitation wiring for client bring-up |
