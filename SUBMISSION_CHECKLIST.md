@@ -4,7 +4,7 @@ English translation of the original checklist. Each section keeps the original, 
 
 **TODO for the author:** the "70 passed" line is the checklist's own status note from 2026-10-21. The README states the count measured for this change. Do not read the "70" below as a new measurement.
 
-**TODO for the author:** section 3 marks the AWS Builder / Amazon Bedrock items done. This translation does not verify a live Bedrock call. `boto3` is not in `requirements.txt`. Confirm before ticking AWS Builder on Devpost.
+**TODO for the author:** section 3 marks the AWS Builder items done. `boto3>=1.39` is in `requirements.txt`. The optional path is one Amazon Nova Lite call through the Bedrock Converse API. It rephrases the `schedule_get` sentence and does not book anything. There is no agent loop. `test_bedrock_converse_live` skips unless `AWS_BEARER_TOKEN_BEDROCK` is set. Confirm the Devpost AWS Builder box from a run you watched.
 
 ---
 
@@ -124,7 +124,7 @@ The two blockquotes above are the original file's opening notes. They are placed
 - [x] Docs: a README paragraph + the friction log
 - [ ] During the recording, the narration names the Bedrock fallback design
 
-**TODO for the author:** these boxes are copied from the original. This change did not verify a live Amazon Bedrock call. See the note at the top of this file before ticking AWS Builder on the Devpost form.
+**TODO for the author:** these boxes are copied from the original. The code now calls Amazon Nova Lite through the Bedrock Converse API for advisory narration of `schedule_get` only. See the note at the top of this file before ticking AWS Builder on the Devpost form.
 
 **TODO for the author:** the original says the friction log documents Bedrock. The friction log's seven entries, as translated, do not name Bedrock. Confirm which doc you meant.
 

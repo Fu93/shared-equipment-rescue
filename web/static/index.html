@@ -309,6 +309,7 @@
         .control-row button { background: var(--micro); color: #fff; }
         .control-row button.warn { background: var(--alert); }
         .llm-mode { font-size: 11px; color: #6FA99B; margin-top: 4px; }
+        .llm-error { font-size: 11px; color: var(--alert); margin-top: 4px; white-space: pre-wrap; }
 
         /* ---------- connection status lamp (B4) ---------- */
         /* The lamp lives in the schedule bar's flow (not fixed), so it can
@@ -489,6 +490,8 @@
             <div class="control-row">
                 <button onclick="resetDemo()">Reset demo data</button>
             </div>
+            <div class="llm-mode" id="bedrockLabel">Bedrock: off</div>
+            <div class="llm-error" id="bedrockError" hidden></div>
             <div class="llm-mode">identity comes from the token — never from tool args</div>
         </div>
     </div>
@@ -1181,7 +1184,45 @@
                 return;
             }
             else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
+            refreshBedrockLabel();
             return data;
+        }
+
+        async function refreshBedrockLabel() {
+            const el = $('bedrockLabel');
+            const err = $('bedrockError');
+            if (!el || !err) return;
+            try {
+                const res = await fetch('/metrics', { cache: 'no-store' });
+                if (!res.ok) {
+                    el.textContent = 'Bedrock: off';
+                    err.hidden = false;
+                    err.textContent = 'Bedrock status unavailable (HTTP ' + res.status + ')';
+                    return;
+                }
+                const data = await res.json();
+                const b = data && data.server && data.server.bedrock;
+                if (!b || !b.label) {
+                    el.textContent = 'Bedrock: off';
+                    err.hidden = false;
+                    err.textContent = (data && data.server && data.server.error)
+                        ? String(data.server.error)
+                        : 'Bedrock status unavailable';
+                    return;
+                }
+                el.textContent = b.label;
+                if (b.error) {
+                    err.hidden = false;
+                    err.textContent = String(b.error);
+                } else {
+                    err.hidden = true;
+                    err.textContent = '';
+                }
+            } catch (e) {
+                el.textContent = 'Bedrock: off';
+                err.hidden = false;
+                err.textContent = 'Bedrock status unavailable';
+            }
         }
 
         async function changeUser() {

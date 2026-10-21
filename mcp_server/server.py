@@ -381,8 +381,10 @@ class TransportGuardMiddleware:
         stands in front of it, so this is not an information leak surface.
         """
         import time as _t
+        from .llm import bedrock_status
         stats = {
             "uptime_seconds": round(_t.monotonic() - _STARTED_MONO, 1),
+            "bedrock": bedrock_status(),
             "rate_limit": {
                 "enabled": _rate_limit_enabled(),
                 "rate_per_sec": _RATE_LIMIT.rate,
@@ -839,7 +841,7 @@ async def _schedule_get_impl(
         if pr["status"] == "proposed"
     ]
 
-    from .llm import script_schedule_overview
+    from .llm import narrate, script_schedule_overview
 
     _snap = {
         "schedule_version": version,
@@ -847,6 +849,12 @@ async def _schedule_get_impl(
         "bookings": [b.model_dump() for b in bookings],
         "open_outages": [o.model_dump() for o in open_outages],
     }
+    # Bedrock may rephrase this sentence. The bookings above are already decided.
+    scripted = script_schedule_overview(_snap)
+    try:
+        message = narrate("schedule_overview", _snap, scripted)
+    except Exception:
+        message = scripted
     log.info("call schedule_get unit=%s date=%s actor=%s status=ok", unit_id, date, viewer.name)
     _audit("schedule_get", "ok", p, f"unit={unit_id} date={date} version={version}", ctx)
     return ScheduleGetResult(
@@ -861,7 +869,7 @@ async def _schedule_get_impl(
         bookings=bookings,
         open_outages=open_outages,
         pending_plans=pending,
-        message=script_schedule_overview(_snap),
+        message=message,
     )
 
 
