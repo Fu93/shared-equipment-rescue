@@ -260,6 +260,16 @@ async def main():
         check("16:00" in body5, "B4 rescheduled to 16:00", body5[-400:])
         check("11:15" in body5, "B2 rescheduled to 11:15", body5[-400:])
 
+        # the applied line must name the zone, not a bare UTC clock
+        check("london" in body5.lower(), "applied timestamp names its zone", body5[-400:])
+
+        # audit tab: timestamps are converted to the same zone as the board
+        await page.evaluate("window.setView && window.setView('audit')")
+        await page.wait_for_timeout(2000)
+        body_audit = await page.inner_text("body")
+        check("london" in body_audit.lower(), "audit timestamps name their zone",
+              body_audit[:400])
+
         # responsive screenshots
         await page.set_viewport_size({"width": 780, "height": 1000})
         await page.wait_for_timeout(700)

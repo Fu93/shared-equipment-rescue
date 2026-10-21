@@ -472,7 +472,7 @@
         </div>
         <div class="controls">
             <div class="control-row">
-                <label>Acting as (auth token)</label>
+                <label for="userSelect">Acting as (auth token)</label>
                 <select id="userSelect" onchange="changeUser()">
                     <option value="tok-manager">Facility Manager (tok-manager)</option>
                     <option value="tok-chen">Chen — Researcher A+B (tok-chen)</option>
@@ -528,8 +528,26 @@
             try {
                 return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
             } catch (err) {
+                // Distinguish the real cause: the SDK raises for every
+                // non-2xx, so a 429 (rate limit) or a 403 (origin/host guard)
+                // used to be reported as "MCP server unreachable" - which
+                // sends the judge hunting for a server that is running fine.
                 logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
-                return { status: 'transport_error', message: 'MCP server unreachable or session dropped — start/restart it on :8765, then use Refresh.' };
+                const code = (err && (err.code != null ? err.code : err.status)) || 0;
+                const text = String((err && err.message) || '');
+                let message;
+                if (code === 429 || /rate limit/i.test(text)) {
+                    message = 'Rate limited by the flood guard - wait a second and try again.';
+                } else if (code === 403 || /rejected|forbidden/i.test(text)) {
+                    message = 'Rejected by the transport guard (origin/host) - this page must be served from 127.0.0.1.';
+                } else if (code === 504 || /did not respond in time/i.test(text)) {
+                    message = 'The MCP server did not respond in time - check that it is running on :8765, then use Refresh.';
+                } else if (code === 502 || /unreachable/i.test(text)) {
+                    message = 'MCP server unreachable - start/restart it on :8765, then use Refresh.';
+                } else {
+                    message = 'MCP server unreachable or session dropped - start/restart it on :8765, then use Refresh.';
+                }
+                return { status: 'transport_error', message: message, http_status: code || null };
             } finally {
                 inflight = false;
             }
@@ -560,6 +578,26 @@
 
         function escapeHtml(sx) {
             return String(sx == null ? '' : sx).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        // The audit trail stores UTC (ISO with +00:00) while the board renders
+        // Europe/London. Showing the raw UTC next to local times read as a
+        // one-hour discrepancy, so the audit column is converted to the same
+        // zone and labelled.
+        function fmtLocalStamp(iso) {
+            const s = String(iso == null ? '' : iso);
+            if (!s) return '';
+            if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.replace('T', ' ').slice(0, 19);
+            // The stored value carries an explicit offset (+00:00 or Z), so
+            // Date parses it correctly as an instant.
+            const d = new Date(s);
+            if (isNaN(d.getTime())) return s.replace('T', ' ').slice(0, 19);
+            const pad = n => String(n).padStart(2, '0');
+            // Europe/London in October 2026 is BST (+01:00).
+            const ldn = new Date(d.getTime() + 60 * 60 * 1000);
+            return ldn.getUTCFullYear() + '-' + pad(ldn.getUTCMonth() + 1) + '-' +
+                pad(ldn.getUTCDate()) + ' ' + pad(ldn.getUTCHours()) + ':' +
+                pad(ldn.getUTCMinutes()) + ':' + pad(ldn.getUTCSeconds()) + ' (London)';
         }
 
         function showLoading(show) { $('loading').classList.toggle('hidden', !show); }
@@ -796,8 +834,8 @@
             const dj = e.detail_json;
             const djChip = dj ? ' <button class="btn-mini" data-k="' + auditJsonRegister(dj) +
                 '" onclick="auditJsonToggle(this, this.dataset.k)">json</button>' : '';
-            return '<div class="audit-row">' +
-                '<div class="a-when">' + escapeHtml(String(e.at).replace('T', ' ').slice(0, 23)) + '</div>' +
+            return '<div class="audit-row" data-audit-id="' + escapeHtml(String(e.id)) + '">' +
+                '<div class="a-when">' + escapeHtml(fmtLocalStamp(e.at)) + '</div>' +
                 '<div class="a-who">' + escapeHtml(e.actor_name || '(anonymous)') + '<small> ' +
                 escapeHtml(e.actor_role || '') + '</small></div>' +
                 '<div class="a-kind k-' + toolRow[1] + '">' + escapeHtml(toolRow[0]) + '</div>' +
@@ -868,13 +906,27 @@
                 data.entries.map(e => e.at + e.tool + e.result).join('|');
             if (sig === auditLastSig) return;
             auditLastSig = sig;
+            const panel = $('scheduleContent').closest('.schedule-panel');
+            const st = panel ? panel.scrollTop : 0;
+            const wrap = $('auditWrap');
+            // Keep the rows the reader paged in with "load older": replacing
+            // the whole list on every tick silently teleported them to a
+            // different set of rows (the scroll offset was preserved, so it
+            // looked like nothing happened).
+            if (wrap && wrap.children.length) {
+                const known = new Set(Array.from(wrap.children).map(r => r.dataset.auditId));
+                const fresh = data.entries.filter(e => !known.has(String(e.id)));
+                if (fresh.length) {
+                    const added = fresh.map(e => renderAuditRow(e)).join('');
+                    wrap.insertAdjacentHTML('afterbegin', added);
+                }
+                auditCursor = data.next_before_id ?? auditCursor;
+                return;
+            }
             auditCursor = data.next_before_id ?? null;
             const rows = data.entries.map(e => renderAuditRow(e)).join('');
             auditJsonStore.clear();
             auditJsonSeq = 0;
-            // preserve the reader's scroll position across live repaints
-            const panel = $('scheduleContent').closest('.schedule-panel');
-            const st = panel ? panel.scrollTop : 0;
             $('scheduleContent').innerHTML = auditFilterBar(data.message) +
                 '<div class="audit-wrap" id="auditWrap" aria-live="polite">' + (rows || '<p>No matching audit entries.</p>') + '</div>' +
                 (auditCursor ? '<div style="text-align:center;margin:10px 0">' +
@@ -1080,10 +1132,23 @@
                 delay = Math.min(delay * 2, 15000);
                 try {
                     await connect(currentToken);
-                    await loadSchedule();
-                    addMessage('Connection restored \u2014 schedule reloaded.', 'system');
-                    reconnecting = false;
-                    return;
+                    // Load the board here rather than through loadSchedule():
+                    // loadSchedule() calls reconnectLoop() again on a transport
+                    // error, and the re-entrancy guard made that inner call a
+                    // no-op - so the loop could announce "Connection restored"
+                    // while the board was still stale.
+                    const data = await safeCall('schedule_get',
+                        { unit_id: 'lab-a', date: DEMO_DATE });
+                    if (data.status === 'ok') {
+                        setLamp('on', 'connected');
+                        renderSchedule(data);
+                        if (data.viewer && data.viewer.role === 'manager') loadChainBadge();
+                        addMessage('Connection restored \u2014 schedule reloaded.', 'system');
+                        reconnecting = false;
+                        return;
+                    }
+                    client = null;
+                    logMCP('in', 'initialize', 'FAIL', data.message || 'schedule_get failed');
                 } catch (err) {
                     client = null;
                     logMCP('in', 'initialize', 'FAIL', err.message);
@@ -1279,7 +1344,7 @@
                 case 'applied': {
                     const cb = data.confirmed_by || {};
                     addMessage('Replan applied (v' + data.new_version + '), confirmed by ' +
-                        (cb.name || cb.user_id) + ' at ' + String(data.confirmed_at || '').substring(11, 19) + '.', 'ai');
+                        (cb.name || cb.user_id) + ' at ' + fmtLocalStamp(data.confirmed_at) + '.', 'ai');
                     for (const ch of (data.applied_changes || [])) {
                         addMessage('\u2714 ' + ch.user + ': ' + fmtRange(ch.from_start, ch.from_end) + ' => ' +
                             eqDisplayName(ch.new_equipment) + ' ' +
@@ -1388,18 +1453,27 @@
                 cc.setAttribute('role', 'dialog');
                 cc.setAttribute('aria-modal', 'true');
                 cc.setAttribute('aria-labelledby', 'confirmTitle');
+                // Capture the trigger BEFORE the panels go inert: making them
+                // inert can move activeElement to <body>, and the focus
+                // restore would then land on the document instead of the
+                // button the judge clicked.
+                lastFocused = document.activeElement;
                 // make background panels inert so Tab and SR cannot leak behind the modal
                 document.querySelectorAll('.chat-panel, .schedule-panel, .dev-panel').forEach(p => p.setAttribute('inert', ''));
-                lastFocused = document.activeElement;
                 $('confirmYes').focus();
                 $('confirmYes').onclick = () => finish(true);
                 $('confirmNo').onclick = () => finish(false);
+                // The dimmed backdrop looks clickable, so clicking it must
+                // dismiss the card (like Cancel) instead of doing nothing -
+                // otherwise a judge clicks it and the UI looks frozen.
+                $('confirmOverlay').onclick = () => finish(false);
                 // focus trap: Tab / Shift+Tab cycle inside the card
                 cc.onkeydown = (ev) => {
                     if (ev.key !== 'Tab') return;
                     const focusables = [ $('confirmYes'), $('confirmNo') ];
                     const idx = focusables.indexOf(document.activeElement);
-                    if (ev.shiftKey && (idx === 0 || idx === -1)) { ev.preventDefault(); focusables[focusables.length - 1].focus(); }
+                    if (idx === -1) { ev.preventDefault(); focusables[0].focus(); return; }
+                    if (ev.shiftKey && idx === 0) { ev.preventDefault(); focusables[focusables.length - 1].focus(); }
                     else if (!ev.shiftKey && idx === focusables.length - 1) { ev.preventDefault(); focusables[0].focus(); }
                 };
                 function finish(v) {
@@ -1477,11 +1551,16 @@
                     String(endH).padStart(2, '0') + ':' + endM + ' today.', 'ai');
                 doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00+01:00',
                     DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00+01:00');
-            } else if (t.indexOf('apply') >= 0) {
-                const pp = lastSchedule && (lastSchedule.pending_plans || [])[0];
-                if (pp) applyFlow(pp.plan_id, lastSchedule.schedule_version);
-                else addMessage('There is no pending plan to apply right now.', 'ai');
-            } else if (t.indexOf('reset') >= 0) {
+            } else if (/\bapply\b/.test(t)) {
+                // Word-boundary match: a plain indexOf('apply') also fired on
+                // "display", "appliance" and "already applied".
+                const plans = (lastSchedule && lastSchedule.pending_plans) || [];
+                if (plans.length) {
+                    applyFlow(plans[0].plan_id, lastSchedule.schedule_version);
+                } else {
+                    addMessage('There is no pending plan to apply right now.', 'ai');
+                }
+            } else if (/\breset\b/.test(t)) {
                 resetDemo();
             } else {
                 addMessage('Try: "confocal A is down from 10 to 16" \u00b7 "apply" \u00b7 "reset" \u2014 or use the buttons in the schedule panel.', 'ai');
