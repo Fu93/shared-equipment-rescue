@@ -103,7 +103,7 @@
             display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
             border-bottom: 2px solid var(--base); padding-bottom: 12px; margin-bottom: 16px;
         }
-        .schedule-bar h2 { font-size: 22px; font-weight: 600; color: var(--base); margin-right: auto; letter-spacing: -.01em; }
+        .schedule-bar h2 { font-size: 22px; font-weight: 600; color: var(--base); letter-spacing: -.01em; }
         .badge {
             font-family: 'Space Grotesk'; font-size: 11px; padding: 3px 10px;
             border: 1px solid var(--base); color: var(--ink); letter-spacing: .06em;
@@ -311,9 +311,12 @@
         .llm-mode { font-size: 11px; color: #6FA99B; margin-top: 4px; }
 
         /* ---------- connection status lamp (B4) ---------- */
+        /* The lamp lives in the schedule bar's flow (not fixed), so it can
+           never land on top of the transport badge that margin-left:auto
+           pushes to the far right - they used to overlap. */
         .conn-lamp {
-            position: fixed; top: 12px; right: 348px; z-index: 1500;
-            display: flex; align-items: center; gap: 7px;
+            display: inline-flex; align-items: center; gap: 7px; flex: none;
+            margin-left: auto;
             padding: 5px 11px; border: 1px solid var(--base); background: var(--paper);
             font-family: 'Space Grotesk'; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
         }
@@ -454,7 +457,10 @@
             <span class="badge v" id="verBadge">v-</span>
             <span class="badge role" id="roleBadge">not connected</span>
             <span id="chainBadge" class="chain-ok" style="font-size:11px"></span>
-            <span id="ledgerBadge" style="margin-left:auto;font-size:11px"></span>
+            <span id="ledgerBadge" style="font-size:11px"></span>
+            <span class="conn-lamp off" id="connLamp">
+                <span class="conn-dot"></span><span id="connText">connecting</span>
+            </span>
         </div>
         <div class="view-toggle" id="viewToggle">
             <button id="btnList" class="active" onclick="setView('list')">List</button>
@@ -468,7 +474,7 @@
     <div class="dev-panel">
         <div class="dev-header">MCP protocol console</div>
         <div class="dev-content" id="mcpLogs">
-            <div class="mcp-message"><span class="mcp-method">System:</span> <span class="mcp-status">not connected</span></div>
+            <div class="mcp-message mcp-placeholder"><span class="mcp-method">System:</span> <span class="mcp-status">not connected</span></div>
         </div>
         <div class="controls">
             <div class="control-row">
@@ -497,10 +503,6 @@
             <button class="confirm-btn" id="confirmYes">Confirm</button>
             <button class="cancel-btn" id="confirmNo">Cancel</button>
         </div>
-    </div>
-
-    <div class="conn-lamp off" id="connLamp">
-        <span class="conn-dot"></span><span id="connText">connecting</span>
     </div>
 
     <div class="hidden" id="loading">Working…</div>
@@ -555,14 +557,20 @@
         let inflight = false;
 
         function logMCP(direction, method, status = '', note = '') {
+            // The first real entry replaces the "System: not connected"
+            // placeholder - it used to sit at the bottom of the console
+            // forever, so the demo screenshot showed a connected session
+            // AND a "not connected" line at the same time.
+            const logs = $('mcpLogs');
+            const placeholder = logs.querySelector('.mcp-placeholder');
+            if (placeholder) placeholder.remove();
             const entry = document.createElement('div');
             entry.className = 'mcp-message' + (direction === 'out' ? ' out' : '');
             const sign = direction === 'out' ? OUT_SIGN : IN_SIGN;
             entry.innerHTML = '<span class="mcp-method">' + sign + ' ' + escapeHtml(method) + '</span> ' +
                 (status ? '<span class="mcp-status">' + escapeHtml(status) + '</span>' : '') +
                 (note ? '<br><span class="mcp-note">' + escapeHtml(note) + '</span>' : '');
-            $('mcpLogs').prepend(entry);
-            const logs = $('mcpLogs');
+            logs.prepend(entry);
             while (logs.children.length > 200) logs.removeChild(logs.lastChild);
         }
 

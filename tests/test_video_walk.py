@@ -136,6 +136,37 @@ async def _walk():
             check("0:00", "protocol version shown", "2025-11-25" in body, body[:200])
             check("0:00", "no JS errors", not errs, str(errs[:2]))
 
+            # The badge row must not overlap: the connection lamp used to be
+            # a fixed overlay that sat on top of the transport badge, so a
+            # screenshot taken for the video showed both stacked on each
+            # other. Any two visible boxes in the bar must not intersect.
+            boxes = {}
+            for sel in ("#verBadge", "#roleBadge", "#chainBadge", "#ledgerBadge",
+                        "#connLamp"):
+                loc = page.locator(sel)
+                if await loc.count():
+                    bb = await loc.first.bounding_box()
+                    if bb:
+                        boxes[sel] = bb
+            overlaps = []
+            keys = list(boxes)
+            for i in range(len(keys)):
+                for j in range(i + 1, len(keys)):
+                    box_a, box_b = boxes[keys[i]], boxes[keys[j]]
+                    if (box_a["x"] < box_b["x"] + box_b["width"]
+                            and box_b["x"] < box_a["x"] + box_a["width"]
+                            and box_a["y"] < box_b["y"] + box_b["height"]
+                            and box_b["y"] < box_a["y"] + box_a["height"]):
+                        overlaps.append(f"{keys[i]} x {keys[j]}")
+            check("0:00", "badge row has no overlapping elements",
+                  not overlaps, str(overlaps))
+            # and the lamp must be readable, not clipped by the panel edge
+            lamp = boxes.get("#connLamp")
+            check("0:00", "connection lamp is inside the viewport",
+                  lamp is not None and lamp["x"] >= 0
+                  and lamp["x"] + lamp["width"] <= 1440,
+                  str(lamp))
+
             # SCENE 0:15-0:40 - report outage -> B2/B4 blocked, version v2
             await page.evaluate("window.reportOutageFlow()")
             await page.wait_for_timeout(3000)
