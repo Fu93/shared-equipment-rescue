@@ -20,23 +20,35 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = "2026-10-20"
-MCP_BOOT = os.path.join(tempfile.gettempdir(), "ser_mcp_dev_server2.py")
+# The MCP server is started from the IN-REPO launcher. An earlier version
+# pointed at %TEMP%\ser_mcp_dev_server2.py - a file that exists nowhere in
+# the repo and is never generated, so on a clean checkout the MCP server
+# simply never started and the whole suite ran against a dead page.
+MCP_BOOT = os.path.join(ROOT, "tools", "dev_server2.py")
 DBP = os.path.join(tempfile.gettempdir(), "ser_webdev2.db")
 WEB_URL = "http://127.0.0.1:8080"
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-ok_count = [0]
+results = []
 fail = []
 
-def check(num, cond, label="", detail=""):
+def check(cond, label="", detail=""):
+    """Assert one UI expectation.
+
+    Signature is (cond, label): every call site passes the real condition
+    first. The previous version read `check(num, cond, ...)` while all call
+    sites passed two arguments, so the condition was dropped and the LABEL
+    landed in the condition slot - a non-empty string, which is always true.
+    The suite therefore reported 20/20 no matter what the UI did.
+    """
+    results.append((label or detail, bool(cond)))
     if cond:
-        ok_count[0] += 1
-        print(f"PASS {ok_count[0]:02d} {label or detail}")
+        print(f"PASS {len(results):02d} {label or detail}")
     else:
         fail.append(label or detail)
         print(f"FAIL -- {label or detail}  [{detail}]")
-    return cond
+    return bool(cond)
 
 
 def _kill_stale():
@@ -49,7 +61,7 @@ def _kill_stale():
     never hide a stale server.
     """
     import subprocess
-    for pat in ("ser_mcp_dev_server2", "app.py --port 8080"):
+    for pat in ("dev_server2.py", "app.py --port 8080"):
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
                         f"Where-Object {{ $_.CommandLine -match '{pat}' }} | "
@@ -85,7 +97,7 @@ def boot_servers():
     env = dict(os.environ)
     env["SER_DB_PATH"] = DBP
     _PROCS.append(subprocess.Popen(
-        [sys.executable, "-X", "utf8", MCP_BOOT], env=env,
+        [sys.executable, "-X", "utf8", MCP_BOOT, DBP], env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=0x08000000))
     _PROCS.append(subprocess.Popen(
@@ -148,8 +160,12 @@ async def main():
         check(cols >= 2, f"panels={cols}")
 
         # 4 equipment names render
+        # The panel uppercases equipment names via CSS text-transform, and
+        # innerText reports the TRANSFORMED text - so compare case-insensitively.
         body = await page.inner_text("body")
-        check("Confocal Microscope A" in body and "Confocal Microscope B" in body, "equipment names")
+        low = body.lower()
+        check("confocal microscope a" in low and "confocal microscope b" in low,
+              "equipment names", body[:300])
 
         # 5 researcher chip visible (booking B2 Chen)
         check("Chen" in body, "Chen visible")
@@ -159,7 +175,11 @@ async def main():
 
         # 7 default Occupied rows masked for chosen identity? (manager sees names, but UI shows Wang booking)
         check("Wang" in body, "Wang visible")
-        check("Occupied" in body or "confirmed" in body.lower(), "booking rows render")
+        # 7 booking rows render: each row shows "<time range> · <user> (<id>)"
+        rows = await page.locator(".booking-row, .b-row, .sched-row, .booking").count()
+        has_time_row = "09:00–10:00" in body or "09:00-10:00" in body
+        check(rows > 0 or has_time_row, "booking rows render",
+              f"rows={rows} has_time_row={has_time_row} body={body[:300]}")
 
         # Act: click identity to manager if needed; then report outage via UI controls
         # The UI has demo buttons; find the outage demo control
@@ -172,44 +192,73 @@ async def main():
             await page.evaluate("window.demoOutage && window.demoOutage()")
         await page.wait_for_timeout(1800)
         body2 = await page.inner_text("body")
-        check("down 10:" in body2, "outage banner")
-        check("Replan proposed" in body2 or "proposed" in body2.lower(), "replan proposed")
+        # The real banner is "Outage recorded: Confocal Microscope A - N
+        # booking(s) affected ..." (uppercased by CSS, so compare lowercased).
+        low2 = body2.lower()
+        check("outage recorded" in low2 and "booking(s) affected" in low2,
+              "outage banner", body2[:300])
+        check("replan proposed" in low2, "replan proposed", body2[:300])
+        # The chat must not show an empty range like "switched equipment (-)".
+        check("switched equipment (\u2013)" not in body2
+              and "switched equipment (-)" not in body2,
+              "no empty equipment range in the narrative", body2[:600])
 
         # confirm card flow (elicitation)
-        apply_btn = page.locator("button", has_text="Apply").first
+        apply_btn = page.locator("button.green").first
         check(await apply_btn.count() > 0, "Apply button exists")
         if await apply_btn.count():
-            await page.evaluate("document.querySelector('.green').click()")
-        await page.wait_for_timeout(2200)
+            await page.evaluate("document.querySelector('button.green').click()")
+        await page.wait_for_timeout(2500)
         body3 = await page.inner_text("body")
         card = await page.locator(".confirm-card").first.is_visible() if await page.locator(".confirm-card").count() else False
         check(card or "your click" in body3.lower(), "confirm card visible")
         check("Chen" in body3 and "Wang" in body3, "card lists affected users")
-        check("elicitation/create" in "\n".join(dev_logs) or "elicitation" in body3.lower(), "elicitation channel")
+        check("elicitation/create" in "\n".join(dev_logs) or "elicitation" in body3.lower(),
+              "elicitation channel")
+        # The "Working..." overlay must not paint over the decision card.
+        card_box = await page.locator(".confirm-card").first.bounding_box() if await page.locator(".confirm-card").count() else None
+        load_box = await page.locator("#loading").bounding_box() if await page.locator("#loading").count() else None
+        load_visible = False
+        if load_box:
+            load_visible = await page.locator("#loading").is_visible()
+        check(not load_visible, "no spinner over the confirm card",
+              f"loading_visible={load_visible} card={card_box} loading={load_box}")
+        # Belt and braces: the card must also outrank the overlay in the
+        # stacking order, so a regression in either fix is caught.
+        z_card = await page.evaluate(
+            "getComputedStyle(document.getElementById('confirmCard')).zIndex")
+        z_load = await page.evaluate(
+            "getComputedStyle(document.getElementById('loading')).zIndex")
+        check(int(z_card or 0) > int(z_load or 0),
+              "confirm card stacks above the spinner",
+              f"card_z={z_card} loading_z={z_load}")
 
-        # decline path first (No button)
-        no_btn = page.locator("button", has_text="No").first
+        # decline path first (the card's button is labelled "Cancel" and has
+        # id confirmNo - there is no "No" button, so a has_text lookup
+        # silently missed it and the decline path never ran)
+        no_btn = page.locator("#confirmNo")
         if await no_btn.count():
             await page.evaluate("document.getElementById('confirmNo').click()")
             await page.wait_for_timeout(1800)
         body4 = await page.inner_text("body")
-        check(("declined" in body4.lower()) or ("nothing was applied" in body4.lower()), "decline path")
+        check(("declined" in body4.lower()) or ("nothing was applied" in body4.lower()),
+              "decline path", body4[-500:])
 
-        # re-apply -> confirm
+        # re-apply -> confirm (the card's confirm button has id confirmYes)
         if await apply_btn.count():
-            await page.evaluate("document.querySelector('.green').click()")
-            await page.wait_for_timeout(1200)
-        yes_btn = page.locator("button", has_text="Yes").first
-        if not await yes_btn.count():
-            yes_btn = page.locator("button", has_text="Confirm").first
+            await page.evaluate("document.querySelector('button.green').click()")
+            await page.wait_for_timeout(2500)
+        yes_btn = page.locator("#confirmYes")
         if await yes_btn.count():
             await page.evaluate("document.getElementById('confirmYes').click()")
-        await page.wait_for_timeout(2200)
+        await page.wait_for_timeout(2500)
         body5 = await page.inner_text("body")
-        check("applied" in body5.lower() and "confirmed by" in body5.lower(), "applied + confirmed by")
-        check("v3" in body5, "version badge v3")
-        check("16:00" in body5, "B4 rescheduled to 16:00")
-        check("11:15" in body5, "B2 rescheduled to 11:15")
+        check("applied" in body5.lower() and "confirmed by" in body5.lower(),
+              "applied + confirmed by", body5[-500:])
+        ver5 = await page.text_content("#verBadge")
+        check((ver5 or "").strip() == "v3", "version badge v3", f"verBadge={ver5!r}")
+        check("16:00" in body5, "B4 rescheduled to 16:00", body5[-400:])
+        check("11:15" in body5, "B2 rescheduled to 11:15", body5[-400:])
 
         # responsive screenshots
         await page.set_viewport_size({"width": 780, "height": 1000})
@@ -222,9 +271,14 @@ async def main():
 
         await browser.close()
 
-    # 21 dev console finalized checks (outside browser)
-    print("\n=== %d/20 PASS ===" % ok_count[0])
-    return 0 if ok_count[0] == 20 else 1
+    total = len(results)
+    passed = sum(1 for _, ok in results if ok)
+    print("\n=== %d/%d PASS ===" % (passed, total))
+    if fail:
+        print("failed checks:")
+        for f in fail:
+            print("  -", f)
+    return 0 if passed == total else 1
 
 
 if __name__ == "__main__":

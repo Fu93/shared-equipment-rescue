@@ -24,8 +24,17 @@ from starlette.staticfiles import StaticFiles
 
 app = FastAPI(title="Shared Equipment Rescue Web UI")
 
-# Shared streaming client (no request timeout: SSE streams stay open).
+# Shared streaming client. SSE streams must stay open indefinitely, but the
+# SAME client also serves the plain JSON path and /metrics - and with no
+# timeout at all, a half-dead upstream (accepts the TCP connection, then
+# stalls) left the proxy request hanging FOREVER. The browser just sat there.
+# So: no timeout for the SSE relay, a bounded one for everything else.
 _client: httpx.AsyncClient | None = None
+
+# Bounded timeout for the non-streaming upstream calls (JSON-RPC responses
+# and /metrics). Long enough for a busy LLM narration, short enough that a
+# stalled upstream surfaces as an error instead of a hanging page.
+UPSTREAM_TIMEOUT = float(os.environ.get("SER_UPSTREAM_TIMEOUT", "30"))
 
 
 def get_client() -> httpx.AsyncClient:
@@ -34,6 +43,16 @@ def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(timeout=httpx.Timeout(None))
     return _client
 
+
+def bounded_client() -> httpx.AsyncClient:
+    """A client with a real timeout, for calls that are NOT SSE streams."""
+    global _bounded
+    if _bounded is None:
+        _bounded = httpx.AsyncClient(timeout=httpx.Timeout(UPSTREAM_TIMEOUT))
+    return _bounded
+
+
+_bounded: httpx.AsyncClient | None = None
 
 client = get_client()  # module-level default for the proxy coroutine
 
@@ -184,6 +203,14 @@ def validate_transport_headers(request: Request) -> Optional[str]:
     return None
 
 
+def upstream_target(request: Request) -> tuple[str, int]:
+    """(host, port) of the MCP server, with the same defaults the proxy uses."""
+    if not getattr(request.app.state, "mcp_port", None):
+        request.app.state.mcp_host = "127.0.0.1"
+        request.app.state.mcp_port = 8765
+    return request.app.state.mcp_host, request.app.state.mcp_port
+
+
 @app.get("/")
 async def serve_home(request: Request) -> HTMLResponse:
     """Serve the main HTML page (same Origin/Host policy as /mcp)."""
@@ -221,9 +248,12 @@ async def serve_metrics(request: Request) -> Response:
         },
         "server": None,
     }
-    client = get_client()
+    # Bounded client: /metrics is a plain JSON call, not an SSE stream, so
+    # it must not inherit the "wait forever" timeout of the relay client.
+    client = bounded_client()
+    host, port = upstream_target(request)
     try:
-        r = await client.get("http://127.0.0.1:8765/metrics")
+        r = await client.get(f"http://{host}:{port}/metrics")
         stats["server"] = r.json() if r.status_code == 200 else \
             {"error": f"upstream status {r.status_code}"}
     except Exception as exc:
@@ -280,14 +310,27 @@ async def proxy_mcp(request: Request, path: str = "") -> Response:
     }
 
     body = await request.body()
-    req = client.build_request(
+    # The SSE relay (GET /mcp) must stay open indefinitely, but a JSON
+    # response must not hang forever if the upstream stalls. So the timeout
+    # is per-request: unbounded for the event stream, bounded otherwise.
+    is_stream_get = request.method == "GET"
+    relay = client if is_stream_get else bounded_client()
+    req = relay.build_request(
         method=request.method,
         url=url,
         headers=headers,
         content=body,
     )
     try:
-        upstream = await client.send(req, stream=True)
+        upstream = await relay.send(req, stream=True)
+    except httpx.TimeoutException:
+        return Response(
+            content='{"jsonrpc":"2.0","id":null,"error":{"code":-32001,'
+            '"message":"MCP server did not respond in time - check that '
+            '\\"python -m mcp_server\\" is running on :8765"}}',
+            status_code=504,
+            media_type="application/json",
+        )
     except httpx.TransportError:  # ConnectError, ReadError, WriteError, etc.
         return Response(
             content='{"jsonrpc":"2.0","id":null,"error":{"code":-32001,'

@@ -75,53 +75,52 @@ def anyio_backend():
 
 @pytest.fixture(scope="module")
 def live_stack():
-    """Start MCP in a background thread + the web proxy as a subprocess."""
+    """Start the MCP server as a child process + the web proxy as a subprocess.
+
+    Both are separate processes on purpose: the MCP server then owns its own
+    event loop and its own database module state, so it cannot be disturbed
+    by the other test modules that share this pytest process.
+    """
     global URL, MCP_PORT, WEB_PORT, WEB_URL
-    import threading
-
-    import uvicorn
-    from mcp.server.fastmcp import FastMCP
-    from mcp_server.server import TransportGuardMiddleware, register_all_tools
-
-    os.environ["SER_NO_RATE_LIMIT"] = "1"
     import tempfile
 
-    dbp = os.path.join(tempfile.gettempdir(), "ser_webproxy_test.db")
-    if os.path.exists(dbp):
-        os.remove(dbp)
-    os.environ["SER_DB_PATH"] = dbp
-
-    fresh = FastMCP("shared-equipment-rescue-web-test",
-                    host="127.0.0.1", port=0,
-                    stateless_http=False, json_response=False)
-    register_all_tools(fresh)
-    import mcp_server.server as srv
-    srv.initialize_storage()
-    app = TransportGuardMiddleware(fresh.streamable_http_app())
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
-    server = uvicorn.Server(config)
-    loop = asyncio.new_event_loop()
-
-    def _run():
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(server.serve())
-
-    th = threading.Thread(target=_run, daemon=True)
-    th.start()
-    for _ in range(100):
-        if getattr(server, "started", False):
-            break
-        time.sleep(0.05)
-    else:
-        raise RuntimeError("MCP server did not start")
-    MCP_PORT = _bound_port(server)
-    URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
-
     WEB_PORT = _free_port()
+    MCP_PORT = _free_port()
+    while MCP_PORT == WEB_PORT:
+        MCP_PORT = _free_port()
+    URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
     WEB_URL = f"http://127.0.0.1:{WEB_PORT}"
+
+    dbp = os.path.join(tempfile.gettempdir(),
+                       f"ser_webproxy_test_{os.getpid()}_{int(time.time())}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+
     env = dict(os.environ)
+    env["SER_DB_PATH"] = dbp
+    env["SER_NO_RATE_LIMIT"] = "1"
     env["PYTHONUTF8"] = "1"
-    out = open(os.path.join(tempfile.gettempdir(), "ser_web_proxy_out.log"), "w+",
+
+    boot = os.path.join(tempfile.gettempdir(), "ser_webproxy_mcp_boot.py")
+    with open(boot, "w", encoding="utf-8") as f:
+        f.write(
+            "import os, sys, uvicorn\n"
+            f"sys.path.insert(0, {ROOT!r})\n"
+            f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+            "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
+            "from mcp_server.server import build_app\n"
+            "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+            % MCP_PORT
+        )
+    mcp = subprocess.Popen([sys.executable, "-X", "utf8", boot], cwd=ROOT, env=env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=open(os.path.join(tempfile.gettempdir(),
+                                                     f"ser_webproxy_mcp_{os.getpid()}.err.log"), "w",
+                                        encoding="utf-8"),
+                            creationflags=0x08000000)
+    out = open(os.path.join(tempfile.gettempdir(),
+                            f"ser_web_proxy_out_{os.getpid()}.log"), "w+",
                encoding="utf-8")
     web = subprocess.Popen(
         [sys.executable, "-X", "utf8", "app.py", "--port", str(WEB_PORT),
@@ -130,7 +129,37 @@ def live_stack():
         stdout=out, stderr=subprocess.STDOUT,
     )
     try:
-        deadline = time.time() + 25
+        import httpx
+
+        def _up():
+            try:
+                r = httpx.post(URL, headers={"authorization": "Bearer tok-manager",
+                                            "accept": "application/json, text/event-stream",
+                                            "content-type": "application/json"},
+                               content=b'{"jsonrpc":"2.0","id":0,"method":"ping"}', timeout=2)
+                return r.status_code < 500
+            except httpx.HTTPError:
+                return False
+
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if _up():
+                break
+            if mcp.poll() is not None:
+                err_path = os.path.join(tempfile.gettempdir(),
+                                        f"ser_webproxy_mcp_{os.getpid()}.err.log")
+                try:
+                    err = open(err_path, encoding="utf-8", errors="replace").read()[-2000:]
+                except OSError:
+                    err = "(no stderr log)"
+                raise RuntimeError(
+                    f"MCP server exited with code {mcp.returncode}\n{err}"
+                )
+            time.sleep(0.3)
+        else:
+            raise RuntimeError("MCP server did not come up")
+
+        deadline = time.time() + 30
         while time.time() < deadline:
             try:
                 if httpx.get(f"{WEB_URL}/metrics", timeout=2).status_code == 200:
@@ -140,27 +169,37 @@ def live_stack():
             if web.poll() is not None:
                 out.flush()
                 out.seek(0)
-                raise RuntimeError(
-                    "web proxy exited: " + out.read()[-2000:]
-                )
+                raise RuntimeError("web proxy exited: " + out.read()[-2000:])
             time.sleep(0.3)
         else:
             out.flush()
             out.seek(0)
-            raise RuntimeError("web proxy did not start: " + out.read()[-2000:])
-        yield {"web": web, "mcp_port": MCP_PORT, "web_port": WEB_PORT,
-               "web_url": WEB_URL, "mcp_url": URL, "server": server}
+            raise RuntimeError(
+                f"web proxy did not start: {out.read()[-2000:]}\n"
+                f"(expected on WEB_URL={WEB_URL}, WEB_PORT={WEB_PORT}, "
+                f"MCP_PORT={MCP_PORT})"
+            )
+        yield {"web": web, "mcp": mcp, "mcp_port": MCP_PORT, "web_port": WEB_PORT,
+               "web_url": WEB_URL, "mcp_url": URL}
     finally:
-        try:
-            web.terminate()
-            web.wait(timeout=6)
-        except Exception:
+        for proc in (web, mcp):
             try:
-                web.kill()
+                proc.terminate()
+                proc.wait(timeout=6)
             except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        try:
+            out.close()
+        except Exception:
+            pass
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(dbp + suffix)
+            except OSError:
                 pass
-        server.should_exit = True
-        time.sleep(0.5)
 
 
 # --- transport guard --------------------------------------------------------
@@ -240,7 +279,12 @@ def test_metrics_aggregates_both_layers(live_stack):
 
 def test_dead_upstream_returns_502_with_hint(live_stack):
     """If the MCP server dies, the proxy explains how to restart it."""
-    live_stack["server"].should_exit = True
+    mcp = live_stack["mcp"]
+    mcp.terminate()
+    try:
+        mcp.wait(timeout=8)
+    except Exception:
+        mcp.kill()
     for _ in range(60):
         try:
             httpx.get(f"http://127.0.0.1:{live_stack['mcp_port']}/metrics", timeout=1)

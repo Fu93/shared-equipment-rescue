@@ -325,11 +325,11 @@
 
         /* ---------- confirm card ---------- */
         .overlay {
-            position: fixed; inset: 0; background: rgba(28,30,29,.55); z-index: 999; display: none;
+            position: fixed; inset: 0; background: rgba(28,30,29,.55); z-index: 1999; display: none;
         }
         .confirm-card {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: var(--paper); padding: 26px; z-index: 1000;
+            background: var(--paper); padding: 26px; z-index: 2100;
             border: 2px solid var(--base); min-width: 430px; max-width: 560px;
             box-shadow: 0 10px 34px rgba(28,30,29,.35);
         }
@@ -540,8 +540,8 @@
             const entry = document.createElement('div');
             entry.className = 'mcp-message' + (direction === 'out' ? ' out' : '');
             const sign = direction === 'out' ? OUT_SIGN : IN_SIGN;
-            entry.innerHTML = '<span class="mcp-method">' + sign + ' ' + method + '</span> ' +
-                (status ? '<span class="mcp-status">' + status + '</span>' : '') +
+            entry.innerHTML = '<span class="mcp-method">' + sign + ' ' + escapeHtml(method) + '</span> ' +
+                (status ? '<span class="mcp-status">' + escapeHtml(status) + '</span>' : '') +
                 (note ? '<br><span class="mcp-note">' + escapeHtml(note) + '</span>' : '');
             $('mcpLogs').prepend(entry);
             const logs = $('mcpLogs');
@@ -566,6 +566,13 @@
 
         function fmtTime(iso) { return String(iso == null ? '' : iso).replace('T', ' ').substring(11, 16); }
         function fmtRange(a, b) { return fmtTime(a) + '\u2013' + fmtTime(b); }
+        // Equipment ids ('confocal-a') are not times: formatting them as a
+        // time range produced "switched equipment (\u2013)" in the chat, the
+        // confirm card and the applied result - a visible empty range.
+        function fmtEquipmentId(id) {
+            const s = String(id == null ? '' : id);
+            return s.replace(/^confocal-/, 'Confocal ').toUpperCase();
+        }
 
         function reasonText(r) {
             if (!r) return '';
@@ -593,7 +600,10 @@
             if (label) bits.push(label);
             if (r.start && r.end) bits.push('(' + fmtRange(r.start, r.end) + ')');
             else if (r.until) bits.push('until ' + fmtTime(r.until));
-            else if (r.from && r.to) bits.push('(' + fmtRange(r.from, r.to) + ')');
+            else if (r.from && r.to) {
+                // from/to carry equipment ids for switched_equipment
+                bits.push('(' + fmtEquipmentId(r.from) + ' \u2192 ' + fmtEquipmentId(r.to) + ')');
+            }
             else if (r.opens && r.closes) bits.push('(open ' + r.opens + '\u2013' + r.closes + ')');
             else if (r.deadline) bits.push('(deadline ' + fmtTime(r.deadline) + ')');
             else if (r.at_least) bits.push('(needs \u2265' + r.at_least + ')');
@@ -1188,7 +1198,12 @@
         function handleProposeResult(data) {
             switch (data.status) {
                 case 'proposed': {
-                    lastProposals.set(data.outage_id, data);
+                    // Key the cache by plan_id: the confirm card looks the
+                    // proposal up by the plan it is applying (lastApplyPlanId).
+                    // It used to be keyed by outage_id, so the direct lookup
+                    // could never hit and only the fallback scan found it.
+                    if (data.plan_id) lastProposals.set(data.plan_id, data);
+                    if (data.outage_id) lastProposals.set(data.outage_id, data);
                     const s = data.summary || {};
                     addMessage('Replan proposed (' + data.plan_id + '): ' +
                         (s.rescheduled != null ? s.rescheduled : (data.changes || []).length) + ' move(s), ' +
@@ -1326,6 +1341,11 @@
         function showConfirmCard(req) {
             return new Promise((resolve) => {
                 pendingElicit = { resolve };
+                // The apply call is still in flight when the server sends the
+                // elicitation, so the "Working..." overlay (z-index 2000) was
+                // painting ON TOP of the decision card (z-index 1000) - the
+                // judge was asked to confirm a replan through a spinner.
+                showLoading(false);
                 const cc = $('confirmCard');
                 const box = $('confirmChanges');
                 let html = '';
