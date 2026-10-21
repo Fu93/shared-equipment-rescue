@@ -39,7 +39,15 @@ def check(num, cond, label="", detail=""):
     return cond
 
 
-def boot_servers():
+def _kill_stale():
+    """Best-effort: stop leftover demo servers from an earlier run.
+
+    The old implementation used Get-CimInstance, which is refused in some
+    sandboxes - and a leftover server on :8080 would make this suite test a
+    STALE build (a false green) instead of the current tree. The port check
+    below now fails loudly if a squatter survives, so a failed cleanup can
+    never hide a stale server.
+    """
     import subprocess
     for pat in ("ser_mcp_dev_server2", "app.py --port 8080"):
         subprocess.run(["powershell", "-NoProfile", "-Command",
@@ -47,17 +55,44 @@ def boot_servers():
                         f"Where-Object {{ $_.CommandLine -match '{pat}' }} | "
                         f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"],
                        capture_output=True)
+
+
+def _port_free(host: str, port: int) -> bool:
+    import socket
+    with socket.socket() as s:
+        s.settimeout(1.0)
+        return s.connect_ex((host, port)) != 0
+
+
+_PROCS = []
+
+
+def boot_servers():
+    import subprocess
+    _kill_stale()
+    for port in (8765, 8080):
+        for _ in range(20):
+            if _port_free("127.0.0.1", port):
+                break
+            time.sleep(0.25)
+        else:
+            raise RuntimeError(
+                f"port {port} is still occupied by a stale server; refusing to "
+                f"test a stale build. Stop it and re-run."
+            )
     if os.path.exists(DBP):
         os.remove(DBP)
     env = dict(os.environ)
     env["SER_DB_PATH"] = DBP
-    subprocess.Popen([sys.executable, "-X", "utf8", MCP_BOOT], env=env,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=0x08000000)
-    subprocess.Popen([sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
-                     cwd=os.path.join(ROOT, "web"),
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     creationflags=0x08000000)
+    _PROCS.append(subprocess.Popen(
+        [sys.executable, "-X", "utf8", MCP_BOOT], env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=0x08000000))
+    _PROCS.append(subprocess.Popen(
+        [sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
+        cwd=os.path.join(ROOT, "web"),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=0x08000000))
     import httpx
     for url in ("http://127.0.0.1:8765/mcp", WEB_URL):
         dl = time.time() + 15
@@ -72,6 +107,20 @@ def boot_servers():
             except httpx.HTTPError:
                 time.sleep(0.3)
         time.sleep(0.4)
+
+
+def stop_servers():
+    """Never leave demo servers behind - a stray :8080 blocks the recording."""
+    for p in _PROCS:
+        try:
+            p.terminate()
+            p.wait(timeout=6)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    _PROCS.clear()
 
 
 async def main():
@@ -179,4 +228,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    try:
+        sys.exit(asyncio.run(main()))
+    finally:
+        stop_servers()
