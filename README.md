@@ -207,7 +207,7 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 69 passed
+python -X utf8 -m pytest tests/ -q      # 70 passed
 ```
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
@@ -219,7 +219,7 @@ python -X utf8 -m pytest tests/ -q      # 69 passed
 - `test_web_proxy.py` (6): the `web/` layer — loopback `Origin`/`Host` accepted on any port, foreign hosts/origins still 403, a real MCP client relayed through the proxy sees all 8 tools and a working `schedule_get`, `/metrics` aggregates both layers, and a dead upstream returns 502 with a restart hint.
 - `test_video_walk.py` (1, 29 scene checks): drives the real UI through **the demo video script beat by beat** — the six bookings and two confocals, the version bump to v2 with the outage banner, both proposed moves with machine-readable reasons, the confirm card naming the human-in-the-loop rule, Cancel leaving the version untouched, Confirm reaching v3, the identity switch masking other people's slots as "Occupied", and the audit tab with zone-labelled timestamps — so the recording cannot show something the narration does not claim. Needs Playwright; skips cleanly where no browser can launch.
 - `test_screenshots_current.py` (1): the committed screenshots in `docs/screenshots/` must still show what the build renders today — it re-renders the same scenes and compares the recorded text, so the images in the README cannot silently go stale. Needs Playwright; skips cleanly where no browser can launch.
-- `test_readme_i18n.py` (1): the English and Chinese sections of this file must agree — same commands, same images, same identifiers, same numbers. A bilingual README that drifts is worse than none, because a reader cannot tell.
+- `test_readme_i18n.py` (2): the English and Chinese sections of this file must agree — same commands, same images, same identifiers, same numbers. A bilingual README that drifts is worse than none, because a reader cannot tell. The second test checks the live rendered page, so the language switch is proven to jump.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 
@@ -416,7 +416,7 @@ Tier 3 加項：每一筆審計紀錄還會存一份事件的**結構化 JSON �
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 69 passed
+python -X utf8 -m pytest tests/ -q      # 70 passed
 ```
 
 - `test_engine.py`（12）：時段搜尋、緩衝語意、權限、B4 範圍的引擎修正、故障可見於搜尋的回歸，以及選擇鍵的平手規則（最早開始者勝；完全平手時留在原設備）。
@@ -428,7 +428,7 @@ python -X utf8 -m pytest tests/ -q      # 69 passed
 - `test_web_proxy.py`（6）：`web/` 那一層 —— loopback 的 `Origin`/`Host` 在任何 port 都接受、外部 host/origin 依然 403、經代理轉發的真 MCP client 看得到全部 8 個工具且 `schedule_get` 可用、`/metrics` 聚合兩層，以及上游掛掉時回 502 加上重啟提示。
 - `test_video_walk.py`（1 項測試、29 條場景檢查）：**逐幕**驅動真實 UI 走完 demo 影片腳本 —— 六個預約與兩台共軛焦、版本跳 v2 與故障橫幅、兩筆異動與機器可讀原因、確認卡寫明人類在環規則、取消後版本不變、確認後到 v3、切换身分後他人槽位顯示「Occupied」、審計分頁的時區標註 —— 所以錄影不可能出現旁白沒說的畫面。需要 Playwright；沒有瀏覽器時會乾淨跳過。
 - `test_screenshots_current.py`（1）：`docs/screenshots/` 裡已提交的截圖必須仍反映當前版本 —— 它會重跑同樣的場景並比對記錄下來的文字，所以 README 的圖不可能在無聲無息中過期。需要 Playwright；沒有瀏覽器時會乾淨跳過。
-- `test_readme_i18n.py`（1）：本檔的英文與中文兩節必須一致 —— 同樣的指令、同樣的圖片、同樣的識別字、同樣的數字。會漂移的雙語 README 比沒有更糟，因為讀者無從分辨。
+- `test_readme_i18n.py`（2）：本檔的英文與中文兩節必須一致 —— 同樣的指令、同樣的圖片、同樣的識別字、同樣的數字。會漂移的雙語 README 比沒有更糟，因為讀者無從分辨。第二條測試會檢查線上算繪後的頁面，確保語言切換確實會跳轉。
 
 Windows 請用 `python -X utf8`，pytest 輸出才不會亂碼。
 

@@ -1,7 +1,7 @@
 # ✅ Amazon Build, Ship, Shape Hackathon — 提交檢查清單
 
 > **截止**：2026-10-23 12:00 太平洋時間 = 20:00 倫敦時間。
-> **本清單以最新實況為準**（2026-10-21：69 tests green；web 瀏覽器 E2E 28/28 PASS（已 mutation 驗證：注入缺陷即失敗）；server CLI E2E 19/19；深度 debug 探針全綠）。
+> **本清單以最新實況為準**（2026-10-21：70 tests green；web 瀏覽器 E2E 28/28 PASS（已 mutation 驗證：注入缺陷即失敗）；server CLI E2E 19/19；深度 debug 探針全綠）。
 
 ## 1. 必交項目
 
@@ -46,7 +46,7 @@
 ## 4. 收尾順序
 
 1. ~~Partner / web/ 改 MCP client~~ ✅ Lead 完成（`c3249ef`，E2E 28/28）
-2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（69 passed）
+2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（70 passed）
 3. ✅ 公開 repo 已推：https://github.com/Fu93/shared-equipment-rescue
 4. ✅ 重拍截圖：`python -X utf8 tools/shoot_screenshots.py` → `web/_shot_1..6.png`（對映上表每一幕，gitignored）
 5. 錄影（腳本上表）→ 上傳 YouTube 公開 **[僅人類可做]**
