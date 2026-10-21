@@ -168,6 +168,21 @@ python -X utf8 -m pytest tests/ -q      # 67 passed
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 
+## Demo screenshots
+
+```bash
+python -X utf8 tools/shoot_screenshots.py   # writes web/_shot_1..6.png
+```
+
+Regenerates the six demo screenshots from the current build, one per beat of
+the video script (initial board, outage, proposal, confirm card, applied, and
+the identity switch). It boots its own servers on ephemeral ports, so it never
+disturbs a running demo. The images are gitignored — they are recording
+material, not source.
+
+`tests/test_video_walk.py` asserts the same beats against the live UI, so a
+screenshot can never show something the narration does not claim.
+
 ## Development docs
 
 - `docs/friction-log.md` — 7 hard-won findings (SSE-only elicitation, async-callback requirement, `Context.request_context.request.headers`, engine visibility fix, `SER_FROZEN_NOW` clock freeze).
