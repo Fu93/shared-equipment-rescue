@@ -202,6 +202,17 @@ async def main():
         check("switched equipment (\u2013)" not in body2
               and "switched equipment (-)" not in body2,
               "no empty equipment range in the narrative", body2[:600])
+        # The board must agree with the narration: the chat says "Schedule is
+        # now v2" while the panel still showed v1 and "No open outages" - a
+        # self-contradicting screen at the exact moment of the demo.
+        ver2 = await page.text_content("#verBadge")
+        check((ver2 or "").strip() == "v2", "board version matches the narration (v2)",
+              f"verBadge={ver2!r}")
+        panel2 = await page.locator(".schedule-panel").inner_text()
+        check("no open outages" not in panel2.lower(),
+              "board shows the outage, not the pre-outage state", panel2[:300])
+        check("down 10:00" in panel2 or "down 10:00\u201316:00" in panel2,
+              "board shows the outage window", panel2[:300])
 
         # confirm card flow (elicitation)
         apply_btn = page.locator("button.green").first
