@@ -242,6 +242,14 @@ def _session_aux_request(scope) -> bool:
     return method == "POST" and path in ("/agent/step", "/agent/result")
 
 
+def _is_loopback(host: str) -> bool:
+    try:
+        import ipaddress
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
 def _client_key(scope) -> str:
     """Rate-limit bucket key for one request.
 
@@ -254,6 +262,18 @@ def _client_key(scope) -> str:
     """
     peer = scope.get("client")
     peer_host = peer[0] if peer else "unknown"
+    # Hosted demo: the web proxy and this server share one box, so every
+    # browser arrives from loopback and would share ONE bucket. With
+    # SER_TRUST_PROXY_CLIENT_IP=1 the proxy's own x-ser-client-ip header (it
+    # always overwrites any client-sent value) is the key, but only when the
+    # raw socket peer is loopback. Unset keeps the raw peer, as before.
+    if os.environ.get("SER_TRUST_PROXY_CLIENT_IP") == "1" and _is_loopback(peer_host):
+        for k, v in scope.get("headers", []):
+            if k == b"x-ser-client-ip":
+                value = v.decode("latin-1").strip()
+                if value and len(value) <= 64:
+                    return "fwd:" + value
+                break
     # X-Forwarded-For is accepted as the bucket key ONLY from the demo web
     # proxy (loopback peer that also carries our proxy marker). Any other
     # caller — even on loopback — is keyed by its raw socket address, so a
@@ -261,6 +281,32 @@ def _client_key(scope) -> str:
     # itself forwards nothing here (browser clients are all 127.0.0.1), so
     # under the demo topology every bucket stays spoof-proof.
     return peer_host
+
+
+def _is_platform_probe(scope, headers: dict) -> bool:
+    """A bare liveness probe: HEAD / from loopback, no Origin, token, cookie or body.
+
+    Hosting platforms (Render's port scan at boot) send exactly this to every
+    port they find listening. It is still refused with 403 and still written to
+    the transport ledger, under its own event name "host_probe", so /metrics
+    keeps counting it while the page does not raise an amber warning for normal
+    platform behaviour. Opt-in with SER_CLASSIFY_PLATFORM_PROBES=1; unset keeps
+    every refused Host under "host", as before. Anything that could carry a
+    request (GET, POST, a path, a token) is never a probe.
+    """
+    if os.environ.get("SER_CLASSIFY_PLATFORM_PROBES") != "1":
+        return False
+    if scope.get("method") != "HEAD" or (scope.get("path") or "") != "/":
+        return False
+    if scope.get("query_string"):
+        return False
+    peer = scope.get("client")
+    if not peer or not _is_loopback(peer[0]):
+        return False
+    for name in ("origin", "authorization", "cookie", "content-type"):
+        if headers.get(name):
+            return False
+    return (headers.get("content-length") or "0") == "0"
 
 
 class TransportGuardMiddleware:
@@ -289,7 +335,8 @@ class TransportGuardMiddleware:
             return
         host = headers.get("host", "")
         if host and not _loopback_host_allowed(host):
-            await self._reject(scope, send, peer, "host",
+            event = "host_probe" if _is_platform_probe(scope, headers) else "host"
+            await self._reject(scope, send, peer, event,
                                f"unrecognized Host {host!r}")
             return
         session_aux = _session_aux_request(scope)

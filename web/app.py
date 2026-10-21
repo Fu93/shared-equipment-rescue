@@ -61,6 +61,10 @@ HOP_BY_HOP_REQ = {
     "host", "content-length", "connection", "keep-alive",
     "proxy-authenticate", "proxy-authorization", "te", "trailer",
     "transfer-encoding", "upgrade", "origin", "referer",
+    # Client-supplied forwarding headers never reach the MCP server: its
+    # uvicorn trusts loopback proxies, so a forged X-Forwarded-For would
+    # otherwise pick the server-side rate-limit bucket.
+    "x-forwarded-for", "x-real-ip", "forwarded",
 }
 HOP_BY_HOP_RESP = {
     "content-length", "content-encoding", "transfer-encoding", "connection",
@@ -110,6 +114,31 @@ ALLOWED_ORIGINS = _load_allowed_origins()
 ALLOWED_HOST_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 
+def _load_allowed_hosts() -> set:
+    """SER_ALLOWED_HOSTS: comma-separated exact public hostnames (no port, no wildcard).
+
+    A Host header matches when its name is listed; any port is accepted only
+    if it is numeric and in 1-65535 ("name:abc" and "name:" are refused).
+
+    Unset means loopback only, as before. A hosted demo (for example
+    shared-equipment-rescue.onrender.com) lists its own public name here so
+    the guard still rejects every other Host a rebound DNS name could send.
+    """
+    out = set()
+    for part in os.environ.get("SER_ALLOWED_HOSTS", "").split(","):
+        part = part.strip().lower().rstrip(".")
+        if part and "*" not in part and "/" not in part and ":" not in part:
+            out.add(part)
+    return out
+
+
+EXTRA_ALLOWED_HOSTS = _load_allowed_hosts()
+
+
+def _valid_port(port: str) -> bool:
+    return port.isascii() and port.isdigit() and 0 < int(port) <= 65535
+
+
 def _loopback_host_allowed(host: str) -> bool:
     """True for loopback host[:port] values; empty Host is tolerated."""
     if not host:
@@ -120,6 +149,10 @@ def _loopback_host_allowed(host: str) -> bool:
     name, sep, _port = host.rpartition(":")
     if not sep:
         name = host
+    if EXTRA_ALLOWED_HOSTS and name.lower().rstrip(".") in EXTRA_ALLOWED_HOSTS:
+        # The name matched; a port, when present, must be a real one
+        # (1-65535, digits only). "name:abc" or "name:" is refused.
+        return not sep or _valid_port(_port)
     if name in ALLOWED_HOST_NAMES:
         return True
     try:
@@ -191,6 +224,38 @@ class _TokenBucket:
 
 
 _rate_limiter = _TokenBucket(rate_per_sec=4.0, burst=16)
+
+# Header the proxy uses to tell the MCP server which client a request is for.
+# The proxy always overwrites it, so a browser cannot choose its own bucket.
+CLIENT_IP_FORWARD_HEADER = "x-ser-client-ip"
+
+
+def client_ip(request: Request) -> str:
+    """Rate-limit key: the socket peer, or one edge-set header when configured.
+
+    SER_CLIENT_IP_HEADER names a header that the hosting edge sets and
+    overwrites itself (cf-connecting-ip on Render, which sits behind
+    Cloudflare). X-Forwarded-For is never used: Render appends to whatever the
+    client sent, so its leftmost entry is attacker-chosen. Unset means the raw
+    socket peer, exactly as before.
+    """
+    name = os.environ.get("SER_CLIENT_IP_HEADER", "").strip().lower()
+    if name and name != "x-forwarded-for":
+        value = (request.headers.get(name) or "").strip()
+        if value and "," not in value and len(value) <= 64:
+            return value
+    return request.client.host if request.client else "unknown"
+
+
+def upstream_headers(request: Request) -> dict:
+    """Request headers to forward upstream, with our own client-IP header set."""
+    headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in HOP_BY_HOP_REQ and k.lower() != CLIENT_IP_FORWARD_HEADER
+    }
+    headers[CLIENT_IP_FORWARD_HEADER] = client_ip(request)
+    return headers
 
 
 def validate_transport_headers(request: Request) -> Optional[str]:
@@ -266,7 +331,8 @@ async def serve_metrics(request: Request) -> Response:
     client = bounded_client()
     host, port = upstream_target(request)
     try:
-        r = await client.get(f"http://{host}:{port}/metrics")
+        r = await client.get(f"http://{host}:{port}/metrics",
+                             headers={CLIENT_IP_FORWARD_HEADER: client_ip(request)})
         stats["server"] = r.json() if r.status_code == 200 else \
             {"error": f"upstream status {r.status_code}"}
     except Exception as exc:
@@ -283,11 +349,7 @@ async def proxy_agent(request: Request) -> Response:
         return JSONResponse({"error": denial}, status_code=403)
     client = bounded_client()
     host, port = upstream_target(request)
-    headers = {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in HOP_BY_HOP_REQ
-    }
+    headers = upstream_headers(request)
     url = f"http://{host}:{port}{request.url.path}"
     try:
         upstream = await client.post(url, content=await request.body(), headers=headers)
@@ -323,8 +385,7 @@ async def proxy_mcp(request: Request, path: str = "") -> Response:
             status_code=403,
         )
     # Per-IP flood budget (local single-user demo: a hammering client is abuse).
-    client_ip = request.client.host if request.client else "unknown"
-    if not _rate_limiter.allow(client_ip):
+    if not _rate_limiter.allow(client_ip(request)):
         return JSONResponse(
             content={
                 "jsonrpc": "2.0", "id": None,
@@ -343,11 +404,7 @@ async def proxy_mcp(request: Request, path: str = "") -> Response:
     if path:
         url += f"/{path}"
 
-    headers = {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in HOP_BY_HOP_REQ
-    }
+    headers = upstream_headers(request)
 
     body = await request.body()
     # The SSE relay (GET /mcp) must stay open indefinitely, but a JSON
