@@ -14,6 +14,14 @@ import sys
 import tempfile
 import time
 
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 results = []
@@ -27,9 +35,9 @@ def boot_stack(dbp):
     env = dict(os.environ)
     env["SER_DB_PATH"] = dbp
     mcp = subprocess.Popen([sys.executable, "-X", "utf8", os.path.join(ROOT, "tools", "dev_server2.py"), dbp],
-                           env=env, creationflags=0x08000000, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           env=env, **_popen_kwargs(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     web = subprocess.Popen([sys.executable, "-X", "utf8", os.path.join(ROOT, "web", "app.py"), "--port", "8080"],
-                           cwd=tempfile.gettempdir(), creationflags=0x08000000,
+                           cwd=tempfile.gettempdir(), **_popen_kwargs(),
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     import httpx
     dl = time.time() + 25

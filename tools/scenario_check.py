@@ -5,6 +5,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("SER_DEMO_DATE", "2026-10-20")
+os.environ.setdefault("SER_DEMO_TZ", "Europe/London")
 
 import mcp_server.server as S  # noqa: E402
 from mcp_server import db as dbm  # noqa: E402

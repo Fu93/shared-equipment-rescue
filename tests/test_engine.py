@@ -19,7 +19,7 @@ from mcp_server.engine import (  # noqa: E402
 )
 from mcp_server import constants as C  # noqa: E402
 from mcp_server import seed as seedm  # noqa: E402
-from mcp_server.timeutil import hhmm_boundary, parse_dt, fmt  # noqa: E402
+from mcp_server.timeutil import hhmm_boundary, local_iso, parse_dt, fmt  # noqa: E402
 
 D = C.DEMO_DATE
 T = lambda hhmm: fmt(hhmm_boundary(D, hhmm))
@@ -41,7 +41,9 @@ def build_world(bmv=None):
     }
     bookings = {b[0]: Booking(
         id=b[0], user_id=b[1], equipment_id=b[2],
-        start=b[3], end=b[4], deadline=b[5],
+        start=local_iso(D, b[3]),
+        end=local_iso(D, b[4]),
+        deadline=local_iso(D, b[5]) if b[5] else None,
         movable=bool(b[6]), status=b[7] or "confirmed",
     ) for b in seedm._BOOKINGS}
     if bmv:

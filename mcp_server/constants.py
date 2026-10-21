@@ -1,18 +1,18 @@
 """Constants shared across the MCP server.
 
-Demo day: 2026-10-20, Europe/London (BST, +01:00).
-All persisted timestamps are full ISO 8601 strings with timezone offset.
+The seeded day is read once, when this module is imported:
+SER_DEMO_DATE, or today's date in SER_DEMO_TZ (default Europe/London).
+Audit rows use the real UTC clock and are not rewritten to this date.
 """
 
 from __future__ import annotations
 
-DEMO_DATE = "2026-10-20"
-DEMO_TZ = "Europe/London"
-DEMO_TZ_OFFSET = "+01:00"
+from .timeutil import configured_tz_name, day_window, local_iso, resolve_demo_date
 
-# Demo-day validity window: [2026-10-20T00:00, 2026-10-21T00:00)
-DEMO_WINDOW_START = "2026-10-20T00:00:00+01:00"
-DEMO_WINDOW_END = "2026-10-21T00:00:00+01:00"
+DEMO_DATE = resolve_demo_date()
+DEMO_TZ = configured_tz_name()
+DEMO_TZ_OFFSET = local_iso(DEMO_DATE, "12:00")[-6:]
+DEMO_WINDOW_START, DEMO_WINDOW_END = day_window(DEMO_DATE)
 
 UNIT_ID = "lab-a"
 UNIT_NAME = "Research Lab A"

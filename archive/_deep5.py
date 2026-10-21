@@ -15,6 +15,14 @@ import os
 import re
 import sys
 
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -68,9 +76,9 @@ async def main():
     env = dict(os.environ); env["SER_DB_PATH"] = DBP
     mcp = subprocess.Popen([sys.executable, "-X", "utf8",
                             os.path.join(ROOT, "tools", "dev_server2.py")],
-                           env=env, creationflags=0x08000000)
+                           env=env, **_popen_kwargs())
     web = subprocess.Popen([sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
-                           cwd=os.path.join(ROOT, "web"), creationflags=0x08000000)
+                           cwd=os.path.join(ROOT, "web"), **_popen_kwargs())
     try:
         dl = time.time() + 15
         up = False

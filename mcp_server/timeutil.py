@@ -1,12 +1,61 @@
-"""Time utilities. All datetimes are timezone-aware; London demo day = BST +01:00."""
+"""Time utilities. All datetimes are timezone-aware.
+
+The seeded demo day is SER_DEMO_DATE, or today in SER_DEMO_TZ (default
+Europe/London). Audit timestamps do not use this clock.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import os
+import re
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 LONDON = ZoneInfo("Europe/London")
 UTC = timezone.utc
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def configured_tz_name() -> str:
+    """SER_DEMO_TZ, or Europe/London. Raises if the name is not a real zone."""
+    name = (os.environ.get("SER_DEMO_TZ") or "Europe/London").strip() or "Europe/London"
+    ZoneInfo(name)
+    return name
+
+
+def configured_zone() -> ZoneInfo:
+    return ZoneInfo(configured_tz_name())
+
+
+def resolve_demo_date() -> str:
+    """ISO date for the seeded schedule.
+
+    SER_DEMO_DATE wins when it is set. Otherwise this is today's date in
+    the configured zone, read from the real clock.
+    """
+    raw = (os.environ.get("SER_DEMO_DATE") or "").strip()
+    if raw:
+        if not _ISO_DATE.match(raw):
+            raise ValueError(f"SER_DEMO_DATE must be YYYY-MM-DD, got {raw!r}")
+        date.fromisoformat(raw)
+        return raw
+    return datetime.now(configured_zone()).date().isoformat()
+
+
+def local_iso(date_str: str, hhmm: str) -> str:
+    """Wall time on date_str in the configured zone, with that instant's offset."""
+    hour, minute = hhmm.split(":")
+    year, month, day = (int(part) for part in date_str.split("-"))
+    dt = datetime(year, month, day, int(hour), int(minute), tzinfo=configured_zone())
+    return dt.isoformat()
+
+
+def day_window(date_str: str) -> tuple[str, str]:
+    """[local midnight, next local midnight) as ISO strings."""
+    start = local_iso(date_str, "00:00")
+    year, month, day = (int(part) for part in date_str.split("-"))
+    nxt = (date(year, month, day) + timedelta(days=1)).isoformat()
+    return start, local_iso(nxt, "00:00")
 
 
 def parse_dt(s: str) -> datetime:
@@ -30,10 +79,8 @@ def to_london(dt: datetime) -> datetime:
 
 
 def hhmm_boundary(date_str: str, hhmm: str) -> datetime:
-    """Combine demo date + 'HH:MM' into an aware London datetime."""
-    h, m = hhmm.split(":")
-    naive = datetime.fromisoformat(f"{date_str}T{int(h):02d}:{int(m):02d}:00")
-    return naive.replace(tzinfo=LONDON)
+    """Combine a date + 'HH:MM' into an aware datetime in the configured zone."""
+    return datetime.fromisoformat(local_iso(date_str, hhmm))
 
 
 def next_quarter(dt: datetime) -> datetime:

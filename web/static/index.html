@@ -65,6 +65,19 @@
             text-transform: uppercase; color: var(--micro); margin-bottom: 4px;
         }
         .chat-header h1 { font-size: 19px; font-weight: 600; color: var(--base); line-height: 1.2; }
+        .chat-mode {
+            font-family: 'Space Grotesk'; font-size: 11px; letter-spacing: .03em;
+            color: var(--micro); margin-top: 8px; line-height: 1.4;
+        }
+        .speech-notice {
+            font-size: 12px; line-height: 1.4; color: var(--alert);
+            padding: 8px 12px 0;
+        }
+        .live-transcript {
+            font-size: 12px; line-height: 1.4; color: #55595B;
+            padding: 6px 12px 0; min-height: 0;
+        }
+        .live-transcript:empty { display: none; }
         .chat-messages { flex: 1; overflow-y: auto; padding: 14px; }
         .message {
             margin-bottom: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5;
@@ -88,6 +101,14 @@
             letter-spacing: .04em; text-transform: uppercase;
         }
         .chat-input button:hover { background: var(--micro); }
+        .chat-input button.mic {
+            background: var(--paper); color: var(--base); border: 1px solid var(--base);
+            padding: 9px 10px;
+        }
+        .chat-input button.mic[aria-pressed="true"] {
+            background: var(--alert); color: #fff; border-color: var(--alert);
+        }
+        .chat-input button:disabled { opacity: .45; cursor: not-allowed; }
         .chat-input button:focus-visible,
         .action-row button:focus-visible,
         .confirm-buttons button:focus-visible,
@@ -309,6 +330,7 @@
         .control-row button { background: var(--micro); color: #fff; }
         .control-row button.warn { background: var(--alert); }
         .llm-mode { font-size: 11px; color: #6FA99B; margin-top: 4px; }
+        .llm-error { font-size: 11px; color: var(--alert); margin-top: 4px; white-space: pre-wrap; }
 
         /* ---------- connection status lamp (B4) ---------- */
         /* The lamp lives in the schedule bar's flow (not fixed), so it can
@@ -436,24 +458,28 @@
     <!-- Left: lab notebook narration -->
     <div class="chat-panel">
         <div class="chat-header">
-            <div class="kicker">Lab A · Confocal Bay</div>
+            <div class="kicker">Alexa+ (simulated) — MCP client</div>
             <h1>Shared Equipment Rescue</h1>
+            <div class="chat-mode" id="chatMode">Fallback: pattern parser (Bedrock off)</div>
         </div>
         <div class="chat-messages" id="chatMessages">
             <div class="message ai-message">
                 Report an equipment outage and I&#8217;ll propose a replan for the affected sessions. Nothing changes on the board until you confirm the replan card.
             </div>
         </div>
+        <div class="speech-notice" id="speechNotice" hidden></div>
+        <div class="live-transcript" id="liveTranscript" aria-live="polite"></div>
         <div class="chat-input">
-            <input type="text" id="userInput" placeholder="e.g. Confocal A is down until 4pm" onkeypress="if(event.key==='Enter') sendMessage()">
-            <button onclick="sendMessage()">Send</button>
+            <input type="text" id="userInput" placeholder="e.g. Alexa, Confocal A is down until 4pm" onkeypress="if(event.key==='Enter') sendMessage()">
+            <button type="button" id="micButton" class="mic" aria-pressed="false" aria-label="Push to talk">Mic</button>
+            <button type="button" onclick="sendMessage()">Send</button>
         </div>
     </div>
 
     <!-- Centre: schedule board -->
     <div class="schedule-panel">
         <div class="schedule-bar">
-            <h2>Schedule — <span id="schedDate">2026-10-20</span></h2>
+            <h2>Schedule — <span id="schedDate">__SER_DEMO_DATE__</span></h2>
             <span class="badge v" id="verBadge">v-</span>
             <span class="badge role" id="roleBadge">not connected</span>
             <span id="chainBadge" class="chain-ok" style="font-size:11px"></span>
@@ -489,6 +515,8 @@
             <div class="control-row">
                 <button onclick="resetDemo()">Reset demo data</button>
             </div>
+            <div class="llm-mode" id="bedrockLabel">Bedrock: off</div>
+            <div class="llm-error" id="bedrockError" hidden></div>
             <div class="llm-mode">identity comes from the token — never from tool args</div>
         </div>
     </div>
@@ -510,7 +538,16 @@
     <script type="module">
         import { createSession, callTool, closeSession } from '/static/mcp-client.bundle.js';
 
-        const DEMO_DATE = '2026-10-20';
+        const DEMO_DATE = '__SER_DEMO_DATE__';
+        const DEMO_TZ = '__SER_DEMO_TZ__';
+        const DEMO_OFFSET = '__SER_DEMO_OFFSET__';
+        const ASSISTANT_BUSY = 'The assistant is busy. Waiting a moment, then trying again.';
+        let bedrockOn = false;
+        let bedrockResolved = false;
+        let holdChatMode = false;
+        let speechTurn = false;
+        let sessionReadyResolve = null;
+        const sessionReady = new Promise((resolve) => { sessionReadyResolve = resolve; });
         let client = null;
         let currentToken = 'tok-manager';
         let lastSchedule = null;
@@ -527,34 +564,54 @@
             // first and produced 'already recorded' on a fresh state.
             if (inflight) return { status: 'busy', message: 'A call is already in flight — one moment.' };
             inflight = true;
+            const delays = [0, 400, 900];
+            let told = false;
             try {
-                return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
-            } catch (err) {
-                // Distinguish the real cause: the SDK raises for every
-                // non-2xx, so a 429 (rate limit) or a 403 (origin/host guard)
-                // used to be reported as "MCP server unreachable" - which
-                // sends the judge hunting for a server that is running fine.
-                logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
-                const code = (err && (err.code != null ? err.code : err.status)) || 0;
-                const text = String((err && err.message) || '');
-                let message;
-                if (code === 429 || /rate limit/i.test(text)) {
-                    message = 'Rate limited by the flood guard - wait a second and try again.';
-                } else if (code === 403 || /rejected|forbidden/i.test(text)) {
-                    message = 'Rejected by the transport guard (origin/host) - this page must be served from 127.0.0.1.';
-                } else if (code === 504 || /did not respond in time/i.test(text)) {
-                    message = 'The MCP server did not respond in time - check that it is running on :8765, then use Refresh.';
-                } else if (code === 502 || /unreachable/i.test(text)) {
-                    message = 'MCP server unreachable - start/restart it on :8765, then use Refresh.';
-                } else {
-                    message = 'MCP server unreachable or session dropped - start/restart it on :8765, then use Refresh.';
+                for (let attempt = 0; attempt < delays.length; attempt++) {
+                    if (delays[attempt]) await new Promise((r) => setTimeout(r, delays[attempt]));
+                    try {
+                        return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                    } catch (err) {
+                        // Distinguish the real cause: the SDK raises for every
+                        // non-2xx, so a 429 (rate limit) or a 403 (origin/host guard)
+                        // used to be reported as "MCP server unreachable" - which
+                        // sends the judge hunting for a server that is running fine.
+                        const code = (err && (err.code != null ? err.code : err.status)) || 0;
+                        const text = String((err && err.message) || '');
+                        const limited = code === 429 || /rate limit/i.test(text);
+                        logMCP('in', 'tools/call:' + toolName, 'transport_error', limited ? 'rate limit' : text);
+                        if (limited && attempt < delays.length - 1) {
+                            if (!told) {
+                                addMessage(ASSISTANT_BUSY, 'system', speechTurn);
+                                told = true;
+                            }
+                            continue;
+                        }
+                        let message;
+                        if (limited) {
+                            message = ASSISTANT_BUSY;
+                            if (!told) addMessage(ASSISTANT_BUSY, 'system', speechTurn);
+                        } else if (code === 403 || /rejected|forbidden/i.test(text)) {
+                            message = 'Rejected by the transport guard (origin/host) - this page must be served from 127.0.0.1.';
+                        } else if (code === 504 || /did not respond in time/i.test(text)) {
+                            message = 'The MCP server did not respond in time - check that it is running on :8765, then use Refresh.';
+                        } else if (code === 502 || /unreachable/i.test(text)) {
+                            message = 'MCP server unreachable - start/restart it on :8765, then use Refresh.';
+                        } else {
+                            message = 'MCP server unreachable or session dropped - start/restart it on :8765, then use Refresh.';
+                        }
+                        return { status: 'transport_error', message: message, http_status: code || null };
+                    }
                 }
-                return { status: 'transport_error', message: message, http_status: code || null };
+                return { status: 'transport_error', message: ASSISTANT_BUSY, http_status: 429 };
             } finally {
                 inflight = false;
             }
         }
         let inflight = false;
+        // MCP calls set inflight. A slow /agent/step does not, so the idle
+        // gate also watches this counter for the whole tool loop.
+        let agentInflight = 0;
 
         function logMCP(direction, method, status = '', note = '') {
             // The first real entry replaces the "System: not connected"
@@ -574,7 +631,7 @@
             while (logs.children.length > 200) logs.removeChild(logs.lastChild);
         }
 
-        function addMessage(text, type = 'ai') {
+        function addMessage(text, type = 'ai', speak) {
             const msg = document.createElement('div');
             msg.className = 'message ' + type + '-message';
             msg.textContent = text;
@@ -582,6 +639,16 @@
             chat.appendChild(msg);
             while (chat.children.length > 150) chat.removeChild(chat.firstChild);
             chat.scrollTop = chat.scrollHeight;
+            if (speak) speakAloud(text);
+        }
+
+        function speakAloud(text) {
+            const synth = window.speechSynthesis;
+            if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') return;
+            const utter = new SpeechSynthesisUtterance(String(text || ''));
+            utter.lang = 'en-US';
+            synth.cancel();
+            synth.speak(utter);
         }
 
         function escapeHtml(sx) {
@@ -596,16 +663,19 @@
             const s = String(iso == null ? '' : iso);
             if (!s) return '';
             if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.replace('T', ' ').slice(0, 19);
-            // The stored value carries an explicit offset (+00:00 or Z), so
-            // Date parses it correctly as an instant.
             const d = new Date(s);
             if (isNaN(d.getTime())) return s.replace('T', ' ').slice(0, 19);
-            const pad = n => String(n).padStart(2, '0');
-            // Europe/London in October 2026 is BST (+01:00).
-            const ldn = new Date(d.getTime() + 60 * 60 * 1000);
-            return ldn.getUTCFullYear() + '-' + pad(ldn.getUTCMonth() + 1) + '-' +
-                pad(ldn.getUTCDate()) + ' ' + pad(ldn.getUTCHours()) + ':' +
-                pad(ldn.getUTCMinutes()) + ':' + pad(ldn.getUTCSeconds()) + ' (London)';
+            const fmt = new Intl.DateTimeFormat('en-GB', {
+                timeZone: DEMO_TZ,
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hourCycle: 'h23',
+            });
+            const parts = {};
+            fmt.formatToParts(d).forEach(p => { parts[p.type] = p.value; });
+            const suffix = DEMO_TZ === 'Europe/London' ? ' (London)' : ' (' + DEMO_TZ + ')';
+            return parts.year + '-' + parts.month + '-' + parts.day + ' ' +
+                parts.hour + ':' + parts.minute + ':' + parts.second + suffix;
         }
 
         function showLoading(show) { $('loading').classList.toggle('hidden', !show); }
@@ -1118,7 +1188,7 @@
                 onElicit: showConfirmCard,
             });
             setLamp('on', 'connected');
-            logMCP('in', 'initialize', 'OK', 'protocol 2025-11-25 \u00b7 elicitation capability declared');
+            logMCP('in', 'initialize', 'OK', 'MCP spec 2025-11-25 \u00b7 elicitation capability declared');
         }
 
         // ---------- B4: connection lamp + auto-reconnect with backoff ----------
@@ -1165,23 +1235,96 @@
             reconnecting = false;
         }
 
-        async function loadSchedule() {
-            if (!client) { reconnectLoop(); return; }
-            const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
-            if (data.status === 'busy') return lastSchedule;
-            if (data.status === 'ok') {
-                setLamp('on', 'connected');
-                renderSchedule(data);
-                if (data.viewer && data.viewer.role === 'manager') loadChainBadge();
+        // One in-flight board read is shared. A forced read waits for that
+        // one to finish, then reads again, so the badge before Confirm is
+        // the version after the outage rather than the page-load snapshot.
+        // light skips the audit-chain call: the voice turn only needs the
+        // schedule version on the badge.
+        let scheduleFlight = null;
+        async function loadSchedule(opts) {
+            const force = !!(opts && opts.force);
+            const light = !!(opts && opts.light);
+            if (scheduleFlight) {
+                const pending = scheduleFlight;
+                if (!force) return pending;
+                try { await pending; } catch (e) { /* the joined read reports its own error */ }
             }
-            else if (data.status === 'transport_error') {
-                setLamp('off', 'server down');
-                client = null;
-                reconnectLoop();
+            const run = (async () => {
+                if (!client) { reconnectLoop(); return; }
+                const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
+                if (data.status === 'busy') return lastSchedule;
+                if (data.status === 'ok') {
+                    setLamp('on', 'connected');
+                    renderSchedule(data);
+                    if (!light && data.viewer && data.viewer.role === 'manager') await loadChainBadge();
+                }
+                else if (data.status === 'transport_error') {
+                    setLamp('off', 'server down');
+                    client = null;
+                    reconnectLoop();
+                    return;
+                }
+                else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
+                await refreshBedrockLabel();
+                return data;
+            })();
+            const tracked = run.finally(() => {
+                if (scheduleFlight === tracked) scheduleFlight = null;
+            });
+            scheduleFlight = tracked;
+            return tracked;
+        }
+
+        async function refreshBedrockLabel() {
+            const el = $('bedrockLabel');
+            const err = $('bedrockError');
+            if (!el || !err) {
+                bedrockResolved = true;
                 return;
             }
-            else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
-            return data;
+            try {
+                const res = await fetch('/metrics', { cache: 'no-store' });
+                if (!res.ok) {
+                    el.textContent = 'Bedrock: off';
+                    bedrockOn = false;
+                    err.hidden = false;
+                    err.textContent = 'Bedrock status unavailable (HTTP ' + res.status + ')';
+                    return;
+                }
+                const data = await res.json();
+                const b = data && data.server && data.server.bedrock;
+                if (!b || !b.label) {
+                    el.textContent = 'Bedrock: off';
+                    bedrockOn = false;
+                    err.hidden = false;
+                    err.textContent = (data && data.server && data.server.error)
+                        ? String(data.server.error)
+                        : 'Bedrock status unavailable';
+                    return;
+                }
+                el.textContent = b.label;
+                bedrockOn = !!b.on;
+                const mode = $('chatMode');
+                if (mode && !holdChatMode) {
+                    mode.textContent = b.on
+                        ? 'Agent: Bedrock tool loop (max 4 steps)'
+                        : 'Fallback: pattern parser (Bedrock off)';
+                }
+                if (b.error) {
+                    err.hidden = false;
+                    err.textContent = String(b.error);
+                } else {
+                    err.hidden = true;
+                    err.textContent = '';
+                }
+            } catch (e) {
+                el.textContent = 'Bedrock: off';
+                bedrockOn = false;
+                err.hidden = false;
+                err.textContent = 'Bedrock status unavailable';
+            } finally {
+                bedrockResolved = true;
+            }
         }
 
         async function changeUser() {
@@ -1200,8 +1343,8 @@
             try {
                 const data = await safeCall('equipment_report_outage', {
                     equipment_id: 'confocal-a',
-                    start: DEMO_DATE + 'T10:00:00+01:00',
-                    end: DEMO_DATE + 'T16:00:00+01:00',
+                    start: DEMO_DATE + 'T10:00:00' + DEMO_OFFSET,
+                    end: DEMO_DATE + 'T16:00:00' + DEMO_OFFSET,
                     reason: 'Laser failure \u2014 reported by facility',
                 });
                 if (data.status === 'busy') { addMessage('One moment — the previous call is still in flight.', 'system'); return; }
@@ -1525,7 +1668,314 @@
             const text = input.value.trim();
             if (!text) return;
             input.value = '';
+            dispatchCommand(text, false);
+        }
+
+        function dispatchCommand(text, fromSpeech) {
+            holdChatMode = false;
+            speechTurn = !!fromSpeech;
             addMessage(text, 'system');
+            if (bedrockOn) return runAgentLoop(text);
+            return Promise.resolve(runPatternParser(text));
+        }
+
+        // The hook, the mic, and ?utterance= all wait for the same gate:
+        // an MCP session, a loaded schedule, a resolved Bedrock label, and
+        // no call still in flight. That includes a pending /agent/step,
+        // which does not set inflight. loadSchedule starts the audit-chain
+        // read without waiting, so a turn that starts the moment the board
+        // appears used to hit that call and come back busy.
+        async function waitUntilIdle(limitMs) {
+            const limit = limitMs == null ? 20000 : limitMs;
+            const start = Date.now();
+            let quiet = 0;
+            while (Date.now() - start < limit) {
+                if (inflight || agentInflight || !client || !lastSchedule || !bedrockResolved) quiet = 0;
+                else quiet += 1;
+                if (quiet >= 3) return;
+                await new Promise((r) => setTimeout(r, 40));
+            }
+        }
+
+        // One page, one utterance at a time. The queue awaits the tool loop,
+        // so a slow Converse call cannot overlap the next hook.
+        let utteranceChain = Promise.resolve();
+        function deliverUtterance(text) {
+            const run = utteranceChain.then(() => runOneUtterance(text));
+            utteranceChain = run.then(() => {}, () => {});
+            return run;
+        }
+
+        async function runOneUtterance(text) {
+            await sessionReady;
+            await waitUntilIdle();
+            await onFinalUtterance(text);
+            await waitUntilIdle();
+        }
+
+        // Final SpeechRecognition result, and the simulation hook, both land here.
+        // A wake word is required. Typing does not use this function.
+        function onFinalUtterance(text) {
+            const raw = String(text == null ? '' : text).trim();
+            const box = $('liveTranscript');
+            if (box) box.textContent = raw;
+            if (!/^\s*alexa\b/i.test(raw)) return;
+            return dispatchCommand(raw, true);
+        }
+
+        // Simulation hook. This is not a microphone and not a cloud speech
+        // service. Automated tests and the screen recording inject a transcript
+        // here, or with ?utterance=, and it takes the same path as a final
+        // SpeechRecognition result (wake word included).
+        window.serSimulateUtterance = function (text) {
+            return deliverUtterance(text);
+        };
+
+        function initSpeech() {
+            const notice = $('speechNotice');
+            const mic = $('micButton');
+            const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!Rec) {
+                if (notice) {
+                    notice.hidden = false;
+                    notice.textContent = 'This browser has no speech recognition. Type your request instead.';
+                }
+                if (mic) mic.disabled = true;
+                return;
+            }
+            const rec = new Rec();
+            rec.lang = 'en-US';
+            rec.interimResults = true;
+            rec.continuous = true;
+            let handed = '';
+            rec.onresult = (ev) => {
+                let finalText = '';
+                let interim = '';
+                for (let i = 0; i < ev.results.length; i++) {
+                    const piece = ev.results[i][0].transcript || '';
+                    if (ev.results[i].isFinal) finalText += piece;
+                    else interim += piece;
+                }
+                const live = (finalText + ' ' + interim).trim();
+                const box = $('liveTranscript');
+                if (box && live) box.textContent = interim ? (live + ' …') : live;
+                const finished = finalText.trim();
+                if (finished && !interim && finished !== handed) {
+                    handed = finished;
+                    deliverUtterance(finished);
+                }
+            };
+            rec.onerror = (ev) => {
+                const code = ev && ev.error;
+                if (code === 'not-allowed' || code === 'service-not-allowed') {
+                    if (notice) {
+                        notice.hidden = false;
+                        notice.textContent = 'Microphone permission was denied. Type your request instead.';
+                    }
+                    if (mic) mic.disabled = true;
+                }
+            };
+            rec.onend = () => {
+                handed = '';
+                if (mic) mic.setAttribute('aria-pressed', 'false');
+            };
+            if (!mic) return;
+            const startMic = (ev) => {
+                ev.preventDefault();
+                if (mic.disabled) return;
+                try {
+                    handed = '';
+                    rec.start();
+                    mic.setAttribute('aria-pressed', 'true');
+                } catch (e) { /* already started */ }
+            };
+            const stopMic = () => {
+                try { rec.stop(); } catch (e) { /* not started */ }
+                mic.setAttribute('aria-pressed', 'false');
+            };
+            mic.addEventListener('pointerdown', startMic);
+            mic.addEventListener('pointerup', stopMic);
+            mic.addEventListener('pointercancel', stopMic);
+        }
+
+        function newConversationId() {
+            let id = '';
+            if (window.crypto && crypto.getRandomValues) {
+                const bytes = new Uint8Array(16);
+                crypto.getRandomValues(bytes);
+                id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+            } else {
+                id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+            }
+            id = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+            return id || 'turn';
+        }
+
+        async function readJsonResponse(http) {
+            let text = '';
+            try { text = await http.text(); } catch (e) { text = ''; }
+            if (!text) return null;
+            try { return JSON.parse(text); } catch (e) { return null; }
+        }
+
+        async function postAgent(path, payload, speak) {
+            const delays = [0, 400, 900];
+            let told = false;
+            for (let i = 0; i < delays.length; i++) {
+                if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
+                let http;
+                try {
+                    http = await fetch(path, {
+                        method: 'POST',
+                        headers: {
+                            'content-type': 'application/json',
+                            'authorization': 'Bearer ' + currentToken,
+                        },
+                        body: JSON.stringify(payload),
+                    });
+                } catch (e) {
+                    if (!told) {
+                        addMessage(ASSISTANT_BUSY, 'system', speak);
+                        told = true;
+                    }
+                    continue;
+                }
+                const data = await readJsonResponse(http);
+                if (http.status === 429 || data == null) {
+                    if (!told) {
+                        addMessage(ASSISTANT_BUSY, 'system', speak);
+                        told = true;
+                    }
+                    continue;
+                }
+                return { ok: true, status: http.status, data: data };
+            }
+            return { ok: false };
+        }
+
+        function agentResultPayload(call, result) {
+            const applied = !!(result && result.status === 'applied');
+            const payload = {
+                name: call.name,
+                tool_use_id: call.toolUseId,
+                status: applied ? 'completed' : ((result && result.status) || 'error'),
+                message: (result && result.message) || '',
+            };
+            if (applied) {
+                payload.server_audit_tool = 'schedule_apply_replan';
+                const planId = (call.input && call.input.plan_id) || lastApplyPlanId || '';
+                if (planId) payload.plan_id = planId;
+            }
+            return payload;
+        }
+
+        async function runAgentLoop(text) {
+            const messages = [{ role: 'user', content: [{ text: text }] }];
+            const conversationId = newConversationId();
+            let rounds = 0;
+            let executions = 0;
+            const speak = speechTurn;
+            let recordedOutage = null;
+            agentInflight += 1;
+            try {
+                while (rounds < 4 && executions < 4) {
+                    const posted = await postAgent('/agent/step', {
+                        messages: messages,
+                        rounds: rounds,
+                        executions: executions,
+                        conversation_id: conversationId,
+                    }, speak);
+                    if (!posted.ok) {
+                        holdChatMode = true;
+                        const mode = $('chatMode');
+                        if (mode) mode.textContent = 'Fallback: pattern parser (rate limit)';
+                        return await runPatternParser(text, recordedOutage);
+                    }
+                    const res = posted.data;
+                    if (!res || res.bedrock === false) {
+                        bedrockOn = false;
+                        const mode = $('chatMode');
+                        if (mode) mode.textContent = 'Fallback: pattern parser (Bedrock off)';
+                        return await runPatternParser(text, recordedOutage);
+                    }
+                    if (res.fallback) {
+                        const mode = $('chatMode');
+                        const code = res.error_code || 'Error';
+                        if (mode) {
+                            mode.textContent = res.label
+                                || ('Fallback: pattern parser (Bedrock error: ' + code + ')');
+                        }
+                        holdChatMode = true;
+                        if (res.message) addMessage(res.message, 'outage-message', speak);
+                        return await runPatternParser(text, recordedOutage);
+                    }
+                    if (res.assistant_message) messages.push(res.assistant_message);
+                    if (typeof res.rounds === 'number') rounds = res.rounds;
+                    if (res.stopped || res.error) {
+                        addMessage(res.message || 'Stopped.', 'outage-message', speak);
+                        await loadSchedule();
+                        return;
+                    }
+                    const calls = res.calls || [];
+                    if (!calls.length) {
+                        addMessage(res.text || res.message || 'Done.', 'ai', speak);
+                        await loadSchedule();
+                        return;
+                    }
+                    for (const call of calls) {
+                        if (call.name === 'schedule_apply_replan') {
+                            if (call.input && call.input.plan_id) lastApplyPlanId = call.input.plan_id;
+                            await loadSchedule({ force: true, light: true });
+                        }
+                        const result = await safeCall(call.name, call.input || {});
+                        executions += 1;
+                        if (call.name === 'equipment_report_outage'
+                            && result && result.status === 'recorded' && result.outage_id) {
+                            recordedOutage = {
+                                id: result.outage_id,
+                                version: result.schedule_version,
+                            };
+                        }
+                        if (call.name === 'schedule_propose_replan' && result && result.plan_id) {
+                            lastProposals.set(result.plan_id, result);
+                            if (result.outage_id) lastProposals.set(result.outage_id, result);
+                        }
+                        addMessage(call.name + ' \u2192 ' + ((result && result.status) || 'error'), 'system');
+                        await postAgent('/agent/result', agentResultPayload(call, result), speak);
+                        let packed = '{}';
+                        try { packed = JSON.stringify(result).slice(0, 4000); } catch (e) { packed = '{}'; }
+                        messages.push({
+                            role: 'user',
+                            content: [{
+                                toolResult: {
+                                    toolUseId: call.toolUseId,
+                                    content: [{ text: packed }],
+                                    status: (result && (result.status === 'transport_error' || result.status === 'forbidden')) ? 'error' : 'success',
+                                },
+                            }],
+                        });
+                        if (call.name === 'schedule_apply_replan' && (!result || result.status !== 'applied')) {
+                            addMessage((result && result.message) || 'Apply was not confirmed. Nothing was applied.', 'ai', speak);
+                            await loadSchedule();
+                            return;
+                        }
+                        if (executions >= 4) break;
+                    }
+                }
+                addMessage('Stopped after 4 steps.', 'system');
+                await loadSchedule();
+            } finally {
+                agentInflight -= 1;
+                speechTurn = false;
+            }
+        }
+
+        function runPatternParser(text, priorOutage) {
+            const speak = speechTurn;
+            if (priorOutage && priorOutage.id) {
+                addMessage('Outage ' + priorOutage.id + ' is already in this turn. Proposing a replan.', 'system', speak);
+                return proposeFlow(priorOutage.id, priorOutage.version);
+            }
             const t = text.toLowerCase();
             const mA = /\bconfocal[- ]?a\b/.test(t);
             const mB = /\bconfocal[- ]?b\b/.test(t);
@@ -1562,9 +2012,9 @@
                 }
                 addMessage('Understood \u2014 reporting ' + (eq === 'confocal-a' ? 'Confocal A' : 'Confocal B') +
                     ' down from ' + String(startH).padStart(2, '0') + ':' + startM + ' to ' +
-                    String(endH).padStart(2, '0') + ':' + endM + ' today.', 'ai');
-                doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00+01:00',
-                    DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00+01:00');
+                    String(endH).padStart(2, '0') + ':' + endM + ' today.', 'ai', speak);
+                return doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00' + DEMO_OFFSET,
+                    DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00' + DEMO_OFFSET);
             } else if (/\bapply\b/.test(t)) {
                 // Word-boundary match: a plain indexOf('apply') also fired on
                 // "display", "appliance" and "already applied".
@@ -1572,12 +2022,12 @@
                 if (plans.length) {
                     applyFlow(plans[0].plan_id, lastSchedule.schedule_version);
                 } else {
-                    addMessage('There is no pending plan to apply right now.', 'ai');
+                    addMessage('There is no pending plan to apply right now.', 'ai', speak);
                 }
             } else if (/\breset\b/.test(t)) {
                 resetDemo();
             } else {
-                addMessage('Try: "confocal A is down from 10 to 16" \u00b7 "apply" \u00b7 "reset" \u2014 or use the buttons in the schedule panel.', 'ai');
+                addMessage('Try: "confocal A is down from 10 to 16" \u00b7 "apply" \u00b7 "reset" \u2014 or use the buttons in the schedule panel.', 'ai', speak);
             }
         }
 
@@ -1607,6 +2057,7 @@
         window.loadOlderAudit = loadOlderAudit;
 
         window.addEventListener('DOMContentLoaded', async () => {
+            initSpeech();
             // Deep link first: /#audit (or /?view=audit for tools that strip
             // fragments) switches the tab even before the MCP connection is
             // up — tab switching is a pure UI concern and the audit view
@@ -1618,16 +2069,27 @@
                     : (['audit', 'timeline'].includes(vhash) ? vhash : null);
                 if (want) setView(want);
             } catch (_) { /* ignore malformed query */ }
+            let uttered = '';
             try {
                 await connect(currentToken);
                 await loadSchedule();
+                await waitUntilIdle();
+                // Simulation hook. Same path as a final recognition result.
+                // It runs only after the session, the schedule, and the
+                // Bedrock status exist, and deliverUtterance waits again if
+                // a call is still in flight.
+                uttered = new URLSearchParams(location.search).get('utterance') || '';
             } catch (err) {
                 logMCP('in', 'initialize', 'FAIL', err.message);
                 setLamp('off', 'server down');
                 client = null;
                 addMessage('Cannot reach the MCP server on :8765 \u2014 it will retry automatically once it is back.', 'outage-message');
                 reconnectLoop();
+            } finally {
+                if (!bedrockResolved) bedrockResolved = true;
+                sessionReadyResolve();
             }
+            if (uttered) deliverUtterance(uttered);
         });
     </script>
 </body>

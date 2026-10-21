@@ -18,6 +18,14 @@ import sys
 import tempfile
 import time
 
+
+def _popen_kwargs():
+    # CREATE_NO_WINDOW (0x08000000) is Windows-only. Passing it on Linux or
+    # macOS raises ValueError and the child process never starts.
+    if os.name == "nt":
+        return {"creationflags": 0x08000000}
+    return {}
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = "2026-10-20"
 # The MCP server is started from the IN-REPO launcher. An earlier version
@@ -96,15 +104,17 @@ def boot_servers():
         os.remove(DBP)
     env = dict(os.environ)
     env["SER_DB_PATH"] = DBP
+    env.setdefault("SER_DEMO_DATE", "2026-10-20")
+    env.setdefault("SER_DEMO_TZ", "Europe/London")
     _PROCS.append(subprocess.Popen(
         [sys.executable, "-X", "utf8", MCP_BOOT, DBP], env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=0x08000000))
+        **_popen_kwargs()))
     _PROCS.append(subprocess.Popen(
         [sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
-        cwd=os.path.join(ROOT, "web"),
+        cwd=os.path.join(ROOT, "web"), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=0x08000000))
+        **_popen_kwargs()))
     import httpx
     for url in ("http://127.0.0.1:8765/mcp", WEB_URL):
         dl = time.time() + 15

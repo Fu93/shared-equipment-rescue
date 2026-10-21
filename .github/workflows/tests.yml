@@ -1,0 +1,26 @@
+name: tests
+
+# One run per PR commit. pull_request covers the PR branch.
+# push is only the default branch, so the same commit is not tested twice.
+# This repo's default branch is master; main is included so a rename still runs.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests/ -q

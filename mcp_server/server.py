@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -169,11 +170,12 @@ class _TokenBucket:
             self.updated.pop(k, None)
 
 
-# Flood budget: ~4 req/s sustained, burst 16 — far above any legitimate demo
-# flow (a browser session issues <2 req/s), far below API-abuse rates.
-# Tests disable it via SER_NO_RATE_LIMIT=1, checked per request so the env may
-# be set after import (they share one loopback IP and open/close sessions fast).
+# Flood budget for MCP traffic: ~4 req/s sustained, burst 16. Board polls
+# and /agent posts use a second bucket so they do not spend the flood one.
+# Both buckets are keyed by client IP address, not by browser session.
+# Tests disable both via SER_NO_RATE_LIMIT=1, checked per request.
 _RATE_LIMIT = _TokenBucket(rate_per_sec=4.0, burst=16)
+_SESSION_RATE = _TokenBucket(rate_per_sec=20.0, burst=40)
 
 
 def _rate_limit_enabled() -> bool:
@@ -227,6 +229,19 @@ def _db_facts() -> dict:
         return {"error": str(exc)[:120]}
 
 
+def _session_aux_request(scope) -> bool:
+    """Board polls and the voice loop's own agent posts.
+
+    They use the second per-IP bucket, not the MCP flood bucket. The key is
+    still the client IP address.
+    """
+    path = (scope.get("path") or "").rstrip("/")
+    method = scope.get("method") or ""
+    if method == "GET" and path == "/metrics":
+        return True
+    return method == "POST" and path in ("/agent/step", "/agent/result")
+
+
 def _client_key(scope) -> str:
     """Rate-limit bucket key for one request.
 
@@ -277,14 +292,21 @@ class TransportGuardMiddleware:
             await self._reject(scope, send, peer, "host",
                                f"unrecognized Host {host!r}")
             return
-        if _rate_limit_enabled() and not _RATE_LIMIT.allow(peer):
-            await self._reject(scope, send, peer, "rate_429",
-                               "rate limit exceeded", status=429)
-            return
+        session_aux = _session_aux_request(scope)
         if _rate_limit_enabled():
-            _RATE_LIMIT.trim()
+            bucket = _SESSION_RATE if session_aux else _RATE_LIMIT
+            bucket_key = peer + (":session" if session_aux else "")
+            if not bucket.allow(bucket_key):
+                await self._reject(scope, send, peer, "rate_429",
+                                   "rate limit exceeded", status=429)
+                return
+            bucket.trim()
         if scope.get("path") == "/metrics" and scope.get("method") == "GET":
             await self._metrics(send)
+            return
+        agent_path = (scope.get("path") or "").rstrip("/")
+        if scope.get("method") == "POST" and agent_path in ("/agent/step", "/agent/result"):
+            await self._agent(scope, receive, send, headers, agent_path)
             return
         if scope.get("method") == "POST" and scope.get("path", "").rstrip("/") == "/mcp":
             ok, err, receive = await self._strict_arguments(scope, receive)
@@ -381,8 +403,10 @@ class TransportGuardMiddleware:
         stands in front of it, so this is not an information leak surface.
         """
         import time as _t
+        from .llm import bedrock_status
         stats = {
             "uptime_seconds": round(_t.monotonic() - _STARTED_MONO, 1),
+            "bedrock": bedrock_status(),
             "rate_limit": {
                 "enabled": _rate_limit_enabled(),
                 "rate_per_sec": _RATE_LIMIT.rate,
@@ -396,6 +420,96 @@ class TransportGuardMiddleware:
                     "headers": [(b"content-type", b"application/json"),
                                 (b"cache-control", b"no-store")]})
         await send({"type": "http.response.body", "body": body})
+
+    async def _agent(self, scope, receive, send, headers, path: str) -> None:
+        """One bounded agent step, or an audit of a call the browser already ran.
+
+        This is not an MCP tool. The browser keeps its Streamable HTTP session
+        and executes accepted calls there, so schedule_apply_replan still
+        elicits on the Confirm card. A missing or unknown bearer is refused.
+        The bearer value is not written to the audit log.
+        """
+        from .agent import catalog_from_fastmcp, http_result, http_step
+        from .auth import principal_from_headers
+        from .llm import CONVERSE_TIMEOUT_SECONDS, timeout_fallback
+
+        principal = principal_from_headers(lambda name: headers.get(name.lower()))
+        if principal is None:
+            await self._send_json(send, 401, {"error": "authentication required"})
+            return
+        body, err = await self._read_json_body(receive)
+        if err:
+            await self._send_json(send, 400, {"error": err, "bedrock": True, "stopped": True,
+                                              "calls": [], "message": err})
+            return
+        auth = headers.get("authorization") or ""
+        token = ""
+        parts = auth.strip().split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1].strip()
+        catalog = catalog_from_fastmcp(mcp)
+        if path == "/agent/step":
+            call_id = uuid.uuid4().hex
+            loop = asyncio.get_running_loop()
+            try:
+                payload = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: http_step(
+                            body, principal, catalog, token=token, call_id=call_id,
+                        ),
+                    ),
+                    timeout=CONVERSE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                payload = timeout_fallback(
+                    int(CONVERSE_TIMEOUT_SECONDS * 1000), call_id=call_id,
+                )
+        else:
+            payload = http_result(body, principal, token=token)
+        status = 200
+        if isinstance(payload, dict) and "http_status" in payload:
+            status = int(payload.pop("http_status") or 200)
+        await self._send_json(send, status, payload)
+
+    @staticmethod
+    async def _read_json_body(receive):
+        body = bytearray()
+        while True:
+            message = await receive()
+            mtype = message.get("type", "")
+            if mtype == "http.request":
+                body += message.get("body", b"")
+                if len(body) > 200_000:
+                    return {}, "request body is too large"
+                if not message.get("more_body", False):
+                    break
+            elif mtype == "http.disconnect":
+                return {}, "client disconnected"
+            else:
+                break
+        if not body:
+            return {}, "request body is empty"
+        try:
+            parsed = json.loads(bytes(body))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}, "request body is not JSON"
+        if not isinstance(parsed, dict):
+            return {}, "request body must be a JSON object"
+        return parsed, ""
+
+    @staticmethod
+    async def _send_json(send, status: int, payload: dict) -> None:
+        raw = json.dumps(payload, ensure_ascii=False).encode()
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"cache-control", b"no-store"),
+            ],
+        })
+        await send({"type": "http.response.body", "body": raw})
 
     @staticmethod
     async def _reject(scope, send, peer: str, event: str, message: str,
@@ -415,10 +529,11 @@ class TransportGuardMiddleware:
                 peer=peer, event=event, why=message, path=path
             ),
         )
-        body = (
-            '{"jsonrpc":"2.0","id":null,"error":{"code":-32002,'
-            f'"message":"rejected: {message}"}}'
-        ).encode()
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32002, "message": f"rejected: {message}"},
+        }).encode()
         await send(
             {
                 "type": "http.response.start",
@@ -506,6 +621,23 @@ def _principal(ctx: Context) -> Optional[Principal]:
     if req is None:
         return None
     return principal_from_headers(req.headers.get)
+
+
+def _narration_requested(ctx: Context) -> bool:
+    """True only when the caller asked to rephrase this schedule_get.
+
+    A board refresh does not send the header, so loading the schedule does
+    not call Bedrock. A narration request sends x-ser-narrate: 1.
+    """
+    rc = ctx.request_context if ctx is not None else None
+    req = getattr(rc, "request", None) if rc is not None else None
+    if req is None:
+        return False
+    try:
+        value = req.headers.get("x-ser-narrate")
+    except Exception:
+        return False
+    return str(value or "").strip() == "1"
 
 
 def _forbidden_ctx(version: int) -> str:
@@ -839,7 +971,7 @@ async def _schedule_get_impl(
         if pr["status"] == "proposed"
     ]
 
-    from .llm import script_schedule_overview
+    from .llm import narrate, script_schedule_overview
 
     _snap = {
         "schedule_version": version,
@@ -847,6 +979,17 @@ async def _schedule_get_impl(
         "bookings": [b.model_dump() for b in bookings],
         "open_outages": [o.model_dump() for o in open_outages],
     }
+    # The bookings above are already decided. A board refresh keeps the
+    # scripted sentence. Bedrock rephrases it only when x-ser-narrate is 1,
+    # and that call runs off the event loop.
+    scripted = script_schedule_overview(_snap)
+    if _narration_requested(ctx):
+        try:
+            message = await asyncio.to_thread(narrate, "schedule_overview", _snap, scripted)
+        except Exception:
+            message = scripted
+    else:
+        message = scripted
     log.info("call schedule_get unit=%s date=%s actor=%s status=ok", unit_id, date, viewer.name)
     _audit("schedule_get", "ok", p, f"unit={unit_id} date={date} version={version}", ctx)
     return ScheduleGetResult(
@@ -861,7 +1004,7 @@ async def _schedule_get_impl(
         bookings=bookings,
         open_outages=open_outages,
         pending_plans=pending,
-        message=script_schedule_overview(_snap),
+        message=message,
     )
 
 
@@ -1774,6 +1917,8 @@ async def debug_confirm(ctx: Context = None) -> ConfirmResult:
 def build_app():
     """ASGI app (Streamable HTTP at /mcp) wrapped in the transport guard."""
     initialize_storage()
+    from .llm import warm_client
+    warm_client()
     return TransportGuardMiddleware(mcp.streamable_http_app())
 
 
@@ -1813,5 +1958,7 @@ def main() -> None:
     if args.db:
         os.environ["SER_DB_PATH"] = args.db
     initialize_storage()
+    from .llm import warm_client
+    warm_client()
     app = TransportGuardMiddleware(mcp.streamable_http_app())
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
