@@ -1,3 +1,15 @@
+## 2026-10-21 14:20 — Lead round 9e — 前端深審缺陷收尾（時區標註・誠實錯誤訊息・modal 可關・a11y・審計分頁）｜browser E2E 23→25 條
+- **時區不一致（評審可見）**：審計軌跡存 UTC，看板渲染 Europe/London，同一場次兩邊差 1 小時且無任何時區標註。→ 審計欄與「replan applied … at」一律換算並標 `(London)`；E2E 新增 2 條斷言鎖住此行為。
+- **錯誤訊息說謊**：SDK 對任何非 2xx 都拋錯，於是 **429（洪水守衛）與 403（origin/host 守衛）都被報成「MCP server unreachable」**——評審會去重啟一個好好活著的伺服器。→ 依 status code 區分：rate limited / rejected by guard / did not respond in time / unreachable。
+- **modal 背板是死 div**：視覺上像可點，點了沒反應 → 評審會以為 UI 卡死。→ 點背板等同 Cancel。
+- **焦點還原目標取錯時機**：先設 `inert` 再取 `document.activeElement`（inert 會把焦點丟到 body）→ 先取焦點再設 inert；Tab 陷阱補上焦點在卡外時的回復。
+- **a11y**：身分 `<select>` 的 `<label>` 沒有 `for=` 也無 `aria-label` → 螢幕報讀器讀到無標籤的下拉，且點 label 不會聚焦。
+- **審計自動刷新吃掉已翻頁的列**：每 10 秒整段重繪 → 使用者翻進來的舊列被清掉（捲動位置卻保留，看起來像沒反應）。→ 只 prepend 新列並保留已翻頁內容（用 `data-audit-id` 去重）。
+- **`apply`/`reset` 用裸 substring 比對** → `display`/`appliance` 也會觸發套用。→ 改為單詞邊界。
+- **reconnect 重入**：`reconnectLoop` 呼叫 `loadSchedule()`，後者又呼叫 `reconnectLoop()`；守衛讓內層變成 no-op → 迴圈可能在看板仍是舊資料時就報「Connection restored」。→ 迴圈自己取數並渲染，成功才提示。
+- 本輪 gates：**pytest 66/66 · final_e2e 19/19 ALL PASS exit=0 · browser E2E 25/25（提權實跑）**；commit `9bf5512`。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交、**加 git remote 並 push**（目前無 remote，評審無法 clone）。期限 2026-10-23。
+
 ## 2026-10-21 14:00 — Lead round 9d — **P0：瀏覽器 E2E 從來不可能失敗（假綠 20/20）＋ 4 個真缺陷**（commit `4f153d6`）
 - **P0 假綠**：`tools/browser_e2e.py` 的 helper 簽名是 `check(num, cond, label)`，但 20 個呼叫點都只傳兩個參數 `(condition, label)` → **condition 被丟掉，label 落進 `cond` 槽位**，而 label 永遠是非空字串，`if cond:` 恆真。整套「20/20 PASS」**與 UI 狀態無關**，我們自己多輪 STATUS 也把它當證據引用。
 - **另一個 P0**：同一檔的 `MCP_BOOT` 指向 `%TEMP%\ser_mcp_dev_server2.py`——**此檔在 repo 內不存在、也沒有任何程式產生它**。乾淨 clone 上 MCP 伺服器根本沒起來，頁面顯示 "not connected"，而 E2E 仍報全綠。已改用 repo 內的 `tools/dev_server2.py`。

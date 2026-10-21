@@ -1,7 +1,7 @@
 # ✅ Amazon Build, Ship, Shape Hackathon — 提交檢查清單
 
 > **截止**：2026-10-23 12:00 太平洋時間 = 20:00 倫敦時間。
-> **本清單以最新實況為準**（2026-10-21：66 tests green；web 瀏覽器 E2E 23/23 PASS（已 mutation 驗證：注入缺陷即失敗）；server CLI E2E 19/19；深度 debug 探針全綠）。
+> **本清單以最新實況為準**（2026-10-21：66 tests green；web 瀏覽器 E2E 25/25 PASS（已 mutation 驗證：注入缺陷即失敗）；server CLI E2E 19/19；深度 debug 探針全綠）。
 
 ## 1. 必交項目
 
@@ -16,11 +16,11 @@
 | 權限 | ✅ | Header-only auth（`tok-manager/chen/wang/li`），researcher 掩碼視圖有測試鎖 |
 | Product Feedback | ✅ | `docs/product-feedback.md` |
 | Friction Log | ✅ | `docs/friction-log.md`（7 條） |
-| web/ MCP client | ✅ | commit `c3249ef`/`ba7e2dc`：同源 streaming 代理＋確認卡＋MCP dev log；瀏覽器 E2E 23/23 |
+| web/ MCP client | ✅ | commit `c3249ef`/`ba7e2dc`：同源 streaming 代理＋確認卡＋MCP dev log；瀏覽器 E2E 25/25 |
 | **Demo 影片 <3:00** | ⬜ 未拍 | 腳本見下（錄影即用 web UI，下列流程逐幕對應 `_shot_1..6.png`） |
 | **Devpost 提交** | ⬜ 未填 | 主賽道 Alexa+；AWS Builder 勾選 |
 
-## 2. 影片腳本（2:30–2:50，對映 web E2E 23 個 PASS）
+## 2. 影片腳本（2:30–2:50，對映 web E2E 25 個 PASS）
 
 | 時間 | 畫面 | 旁白 |
 |---|---|---|
@@ -41,7 +41,7 @@
 
 ## 4. 收尾順序
 
-1. ~~Partner / web/ 改 MCP client~~ ✅ Lead 完成（`c3249ef`，E2E 23/23）
+1. ~~Partner / web/ 改 MCP client~~ ✅ Lead 完成（`c3249ef`，E2E 25/25）
 2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（66 passed）
 3. 錄影（腳本上表）→ 上傳 YouTube 公開 **[僅人類可做]**
 4. Devpost 填寫：intro、Alexa+ 主賽道、AWS Builder 勾選、連 repo＋影片 **[僅人類可做]**
@@ -58,6 +58,6 @@
 
 ## 6. 最後提醒
 
-- 任何數字都**不要**在錄影時現場算——照 web E2E 的 PASS 清單口播（23 條）。
+- 任何數字都**不要**在錄影時現場算——照 web E2E 的 PASS 清單口播（25 條）。
 - Windows 一律 `python -X utf8`；兩個服務器走不同終端（8765 MCP / 8080 web）。
 - 影片與 Devpost 是**僅剩兩項**，其他全部完成。
