@@ -21,8 +21,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 README = os.path.join(ROOT, "README.md")
 
-EN_ANCHOR = '<a name="shared-equipment-rescue"></a>'
-ZH_ANCHOR = '<a name="共享儀器搶救"></a>'
+EN_ANCHOR = "# Shared Equipment Rescue\n"
+ZH_ANCHOR = "# 共享儀器搶救\n"
 
 problems = []
 
@@ -97,6 +97,12 @@ def _numbers(section: str):
 
 def main() -> int:
     text = open(README, encoding="utf-8").read()
+    if EN_ANCHOR not in text:
+        print(f"missing the English section heading {EN_ANCHOR!r}")
+        return 1
+    if ZH_ANCHOR not in text:
+        print(f"missing the Chinese section heading {ZH_ANCHOR!r}")
+        return 1
     en, zh = _split(text)
 
     # 1 - code blocks must be identical (commands must not drift)

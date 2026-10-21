@@ -12,8 +12,6 @@
 
 ---
 
-<a name="shared-equipment-rescue"></a>
-
 # Shared Equipment Rescue
 
 **A facility manager's AI copilot for shared-instrument outage recovery — a self-hosted MCP 2025-11-25 server that detects every booking an outage breaks, proposes a rule-checked replan, and never writes a single change without explicit human confirmation (MCP elicitation, human-in-the-loop).**
@@ -265,8 +263,6 @@ silently go stale.
 MIT — see LICENSE. Synthetic demo data; not production-hardened.
 
 ---
-
-<a name="共享儀器搶救"></a>
 
 # 共享儀器搶救
 
