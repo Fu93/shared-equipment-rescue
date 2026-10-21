@@ -118,6 +118,8 @@ async def test_all_six_tools_present():
         "equipment_report_outage",
         "schedule_propose_replan",
         "schedule_apply_replan",
+        "schedule_audit_get",
+        "verify_audit_chain",
         "reset_demo_data",
         "debug_confirm",
     }

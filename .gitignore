@@ -1,2 +1,6 @@
-﻿__pycache__/
 __pycache__/
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm
+_shot_*.png

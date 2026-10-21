@@ -1,7 +1,7 @@
 # ✅ Amazon Build, Ship, Shape Hackathon — 提交檢查清單
 
 > **截止**：2026-10-23 12:00 太平洋時間 = 20:00 倫敦時間。
-> **本清單以 2026-10-20 服務器實況為準**（51 tests green；web 瀏覽器 E2E 20/20 PASS；server CLI E2E 19/19；深度 debug 37 項全綠）。
+> **本清單以最新實況為準**（2026-10-21：56 tests green；web 瀏覽器 E2E 20/20 PASS；server CLI E2E 19/19；深度 debug 37 項全綠）。
 
 ## 1. 必交項目
 
@@ -10,7 +10,7 @@
 | GitHub repo（公開） | ✅ | `shared-equipment-rescue`，MIT license |
 | README | ✅ | 英文，安裝/架構/demo皆有；`python -m mcp_server` 一行啟動；web demo 兩行啟動 |
 | **MCP 伺服器** | ✅ | `mcp_server/`，`mcp==1.30.0`，Streamable HTTP，`2025-11-25` |
-| 工具（≥4） | ✅ | 6 個：`schedule_get`、`equipment_report_outage`、`schedule_propose_replan`、`schedule_apply_replan`、`reset_demo_data`、`debug_confirm` |
+| 工具（≥4） | ✅ | 8 個：`schedule_get`、`equipment_report_outage`、`schedule_propose_replan`、`schedule_apply_replan`、`schedule_audit_get`、`verify_audit_chain`、`reset_demo_data`、`debug_confirm` |
 | **Elicitation** | ✅ | **真協定**：`schedule_apply_replan` 伺服器端 `ctx.elicit()`，拒絕→`not_confirmed` 無副作用；瀏覽器端確認卡只由人類點擊回答（`web/` TS SDK `ElicitRequestSchema` handler） |
 | 狀態持久化 | ✅ | SQLite＋單調 `schedule_version`＋audit `change_log` |
 | 權限 | ✅ | Header-only auth（`tok-manager/chen/wang/li`），researcher 掩碼視圖有測試鎖 |
@@ -42,7 +42,7 @@
 ## 4. 收尾順序
 
 1. ~~Partner / web/ 改 MCP client~~ ✅ Lead 完成（`c3249ef`，E2E 20/20）
-2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（51 passed）
+2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（56 passed）
 3. 錄影（腳本上表）→ 上傳 YouTube 公開 **[僅人類可做]**
 4. Devpost 填寫：intro、Alexa+ 主賽道、AWS Builder 勾選、連 repo＋影片 **[僅人類可做]**
 5. 10/22 全流程彩排一次；10/23 只做緩衝

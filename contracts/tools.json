@@ -766,6 +766,192 @@
         "type": "object"
       }
     },
+    "schedule_audit_get": {
+      "description": "Read the audit trail. Managers see everything; researchers see own + public events.\n\n    `before_id` paginates older rows (pass next_before_id from the prior call);\n    `tool_filter` narrows to one tool name.\n    ",
+      "inputSchema": {
+        "properties": {
+          "before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Before Id"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "tool_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Filter"
+          }
+        },
+        "title": "schedule_audit_getArguments",
+        "type": "object"
+      },
+      "name": "schedule_audit_get",
+      "outputSchema": {
+        "$defs": {
+          "AuditEntry": {
+            "properties": {
+              "actor_id": {
+                "default": "",
+                "title": "Actor Id",
+                "type": "string"
+              },
+              "actor_name": {
+                "default": "",
+                "title": "Actor Name",
+                "type": "string"
+              },
+              "actor_role": {
+                "default": "",
+                "title": "Actor Role",
+                "type": "string"
+              },
+              "at": {
+                "title": "At",
+                "type": "string"
+              },
+              "detail": {
+                "default": "",
+                "title": "Detail",
+                "type": "string"
+              },
+              "detail_json": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail Json"
+              },
+              "result": {
+                "title": "Result",
+                "type": "string"
+              },
+              "token_hint": {
+                "default": "-",
+                "title": "Token Hint",
+                "type": "string"
+              },
+              "tool": {
+                "title": "Tool",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "tool",
+              "result"
+            ],
+            "title": "AuditEntry",
+            "type": "object"
+          },
+          "Viewer": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "role": {
+                "title": "Role",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id",
+              "name",
+              "role"
+            ],
+            "title": "Viewer",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "entries": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/AuditEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "next_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next Before Id"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "viewer": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Viewer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "status",
+          "schedule_version"
+        ],
+        "title": "AuditGetResult",
+        "type": "object"
+      }
+    },
     "schedule_get": {
       "description": "Read one unit's schedule for one date with role-based masking.",
       "inputSchema": {
@@ -1703,6 +1889,110 @@
           "schedule_version"
         ],
         "title": "ProposeResult",
+        "type": "object"
+      }
+    },
+    "verify_audit_chain": {
+      "description": "Recompute the audit hash chain and report tamper status. Manager-only.",
+      "inputSchema": {
+        "properties": {},
+        "title": "verify_audit_chainArguments",
+        "type": "object"
+      },
+      "name": "verify_audit_chain",
+      "outputSchema": {
+        "properties": {
+          "broken_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Broken At"
+          },
+          "chain_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Chain Ok"
+          },
+          "checked": {
+            "default": 0,
+            "title": "Checked",
+            "type": "integer"
+          },
+          "head_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Head Hash"
+          },
+          "head_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Head Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          },
+          "schedule_version": {
+            "title": "Schedule Version",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "schedule_version"
+        ],
+        "title": "ChainVerifyResult",
         "type": "object"
       }
     }

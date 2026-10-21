@@ -1,4 +1,12 @@
-## 2026-10-20 20:15 - FUNCTION FREEZE CHECKPOINT (20:00 London passed) - ALL GREEN
+## 2026-10-21 03:50 — Lead 產品級 sweep round 5（3 子代理並行審查）
+- **P0 修**：requirements.txt 補 `fastapi>=0.110` + `httpx>=0.26`（web/app.py 必需依賴缺失，fresh clone 的 README quickstart 第 2 行會 ModuleNotFoundError）。
+- **P1 修**：tools/final_e2e.py 補 `SER_NO_RATE_LIMIT=1`（新 token bucket 令預設跑法在 A5 吃 429 flake；對齊 test_server.py 做法）。CLI E2E 重跑 **19/19 ALL PASS**exit=0，三連跑無 flake。
+- **P1 修**（docs truth-sync）：51→**56 passed**（test_accountability.py 5 條入冊 + test_server 實為 8 非 18）；工具數 6→**8**（schedule_audit_get + verify_audit_chain）；SUBMISSION_CHECKLIST 同步。
+- **P1 修**（repo hygiene）：.gitignore 重寫（*.db / _shot_*.png / .pytest_cache），`git rm --cached server.db equipment.db`，刪除 legacy equipment.db 與根目錄暫存探針 qa_card_probe.py。
+- Sidecars 清潔：8765/8080 stale 伺服器已清；/metrics 實測（uptime/WAL/audit_chain ok）、403 evil-origin 實測、audit 邊界輸入（limit≤0 / 超界 before_id / SQL 注入字串 / 研究員越權 verify_audit_chain→forbidden）全乾淨。
+- 待收：後端深審 + 前端深審子代理報告（audit 功能產品級覆核）。
+
+
 - Freeze-time verification against current working tree (incl. uncommitted local-font @font-face additions by user/Partner):
   pytest **51** / final_e2e CLI **19/19** / browser E2E **20/20**. Static + font files serve 200 via app.py (cd-independent paths proven).
 - Commit chain up to 76a27a2 (polish round 4) all passed gates at commit time; working tree now carries only a local-font offline-safety edit (index.html @font-face + web/static/fonts/*.woff2, ~205KB) - verified no breakage; safe to commit as-is.

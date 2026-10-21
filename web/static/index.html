@@ -148,6 +148,115 @@
         .booking.deadline { font-size: 10.5px; color: #b03a2e; }
         .booking .moved-tag { color: var(--micro); font-size: 10.5px; }
 
+        /* ---------- timeline view (A1/A2) ---------- */
+        .view-toggle { display: flex; gap: 0; margin: 10px 0 0; }
+        .view-toggle button {
+            padding: 5px 12px; font-family: 'Space Grotesk'; font-size: 11px; letter-spacing: .06em;
+            border: 1px solid var(--base); background: transparent; color: var(--ink); cursor: pointer;
+            text-transform: uppercase;
+        }
+        .view-toggle button + button { border-left: none; }
+        .view-toggle button.active { background: var(--base); color: var(--paper); }
+
+        .timeline-wrap { border: 1px solid var(--base); background: #fff; padding: 18px 14px 10px; }
+        .timeline-lane-grid { position: relative; }
+        .timeline-row { display: flex; align-items: stretch; margin-bottom: 0; }
+        .timeline-track {
+            position: relative; height: 64px; margin-left: 110px;
+            /* flex:1 — the track holds only absolutely-positioned children,
+               so without an explicit flex basis it collapses to 0 width and
+               every percentage left/width renders as a 16px sliver. */
+            flex: 1 1 auto; min-width: 0;
+            background: linear-gradient(90deg, var(--rule) 1px, transparent 1px) repeat-x;
+            background-size: calc(100% / 32) 100%;   /* 32 quarter-hours over 08h */
+        }
+        .timeline-track::before {
+            content: ''; position: absolute; left: 0; right: 0; top: 0;
+            border-top: 1px solid var(--rule);
+        }
+        .timeline-label {
+            position: absolute; left: 0; width: 100px; text-align: right; padding-right: 10px;
+            font-size: 11.5px; line-height: 62px; color: var(--ink); white-space: nowrap;
+        }
+        .timeline-label .who { font-weight: 600; font-family: 'Space Grotesk'; font-size: 12px; }
+        .timeline-hour-ticks {
+            margin-left: 110px; display: flex; font-size: 10px; color: #889;
+            font-variant-numeric: tabular-nums; padding-top: 4px;
+        }
+        .timeline-hour-ticks span { flex: 1; text-align: left; }
+        .tl-gap { position: absolute; top: 4px; bottom: 4px; font-size: 9px; color: #B8B2A6; }
+
+        .tl-booking {
+            position: absolute; top: 8px; bottom: 8px;
+            background: rgba(46,125,107,.13); border: 1px solid var(--micro);
+            border-left: 3px solid var(--micro); padding: 3px 6px; font-size: 11px;
+            color: var(--ink); overflow: hidden; cursor: default;
+        }
+        .tl-booking .t { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 10.5px; }
+        .tl-booking .u { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tl-booking.blocked { background: rgba(196,72,47,.15); border-color: var(--alert); border-left-color: var(--alert); }
+        .tl-booking.unresolved { background: rgba(185,134,47,.16); border-color: var(--hold); border-left-color: var(--hold); }
+        .tl-booking.masked { background: var(--paper-dim); border-color: #B8B2A6; border-left-color: #B8B2A6; color: #789; }
+        .tl-booking.faded { opacity: .45; }
+        .tl-booking:hover { z-index: 5; min-width: 140px; background: rgba(46,125,107,.22); }
+        .tl-booking.blocked:hover { background: rgba(196,72,47,.25); }
+        .tl-booking.unresolved:hover { background: rgba(185,134,47,.28); }
+
+        .tl-outage {
+            position: absolute; top: 0; bottom: 0;
+            background: repeating-linear-gradient(45deg,
+                rgba(196,72,47,.28) 0 6px,
+                rgba(196,72,47,.12) 6px 12px);
+            border-left: 1px dashed var(--alert); border-right: 1px dashed var(--alert);
+        }
+        .tl-outage-label {
+            position: absolute; top: -2px; font-size: 9px; color: var(--alert);
+            font-weight: 700; text-transform: uppercase; letter-spacing: .08em; line-height: 1;
+        }
+
+        /* ---------- audit view (2b) ---------- */
+        .audit-wrap { border: 1px solid var(--base); background: #fff; padding: 6px 0; margin-top: 10px; }
+        .audit-row {
+            display: flex; align-items: baseline; gap: 10px; padding: 8px 14px;
+            border-bottom: 1px solid var(--rule); font-size: 12.5px;
+        }
+        .audit-row:last-child { border-bottom: none; }
+        .audit-json {
+            margin: 6px 0 2px 168px; padding: 8px 10px; font-size: 11px;
+            background: #f4f7f6; border: 1px solid var(--rule); border-radius: 6px;
+            white-space: pre; overflow-x: auto; max-width: 60ch;
+        }
+        .a-when { width: 158px; flex: none; color: #788; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+        .a-who { width: 150px; flex: none; font-weight: 600; color: var(--ink); }
+        .a-who small { font-weight: 400; color: #99a; font-size: 10.5px; }
+        .a-kind { flex: none; width: 74px; text-align: center; font-family: 'Space Grotesk'; font-size: 9.5px;
+            letter-spacing: .08em; padding: 2px 0; border: 1px solid; }
+        .a-kind.k-alert { color: var(--alert); border-color: var(--alert); }
+        .a-kind.k-hold { color: var(--hold); border-color: var(--hold); }
+        .a-kind.k-micro { color: #fff; background: var(--micro); border-color: var(--micro); }
+        .a-kind.k-neutral { color: #788; border-color: var(--rule); }
+        .a-what { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .a-what b { color: var(--base); }
+        /* the json chip must stay clickable: it lives inside the ellipsized
+           flex row, so it needs its own non-shrinking hit area */
+        .a-what .btn-mini { position: relative; z-index: 1; flex: none; }
+        .audit-row { pointer-events: auto; }
+        .btn-mini {
+            margin-left: 8px; padding: 1px 8px; font: inherit; font-size: 11px;
+            background: none; border: 1px solid var(--rule); color: var(--ink);
+            cursor: pointer; border-radius: 3px;
+        }
+        .btn-mini:hover { border-color: var(--ink); }
+        .chain-ok { color: var(--base); font-weight: 600; }
+        .chain-bad { color: var(--alert); font-weight: 700; }
+        .ledger-warn { color: var(--hold); font-weight: 600; }
+        .ledger-ok { color: var(--micro); font-weight: 600; }
+        @media (prefers-color-scheme: dark) {
+            .audit-wrap { background: var(--paper-dim); }
+            .a-what b { color: var(--ink); }
+            .a-when { color: #8E948A; }
+        }
+
         .reason-list { margin-top: 3px; font-size: 11px; color: #8a6d3b; }
 
         .action-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
@@ -197,6 +306,19 @@
         .control-row button.warn { background: var(--alert); }
         .llm-mode { font-size: 11px; color: #6FA99B; margin-top: 4px; }
 
+        /* ---------- connection status lamp (B4) ---------- */
+        .conn-lamp {
+            position: fixed; top: 12px; right: 348px; z-index: 1500;
+            display: flex; align-items: center; gap: 7px;
+            padding: 5px 11px; border: 1px solid var(--base); background: var(--paper);
+            font-family: 'Space Grotesk'; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+        }
+        .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa; }
+        .conn-lamp.on .conn-dot { background: var(--micro); box-shadow: 0 0 6px rgba(46,125,107,.6); }
+        .conn-lamp.retry .conn-dot { background: var(--hold); animation: lamp-pulse 1s ease-in-out infinite; }
+        .conn-lamp.off .conn-dot { background: var(--alert); }
+        @keyframes lamp-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
         /* ---------- confirm card ---------- */
         .overlay {
             position: fixed; inset: 0; background: rgba(28,30,29,.55); z-index: 999; display: none;
@@ -242,6 +364,44 @@
             .confirm-card, .overlay, .message, #loading { animation: none !important; }
         }
 
+        /* ---------- dark mode (follows OS) ---------- */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --paper: #22261F;   /* dark lab bench */
+                --ink:   #E8E4DA;
+                --rule:  #434A3E;
+                --paper-dim: #2C3129;
+            }
+            body { background: var(--base); color: var(--ink); }
+            .chat-panel { background: var(--paper); }
+            .schedule-panel { background: var(--paper); }
+            .chat-input input { background: #1B1E1A; color: var(--ink); border-color: var(--rule); }
+            .chat-input input::placeholder { color: #7B8175; }
+            .equipment-column, .confirm-item, .timeline-wrap { background: var(--paper-dim); }
+            .equipment-column { color: var(--ink); }
+            .badge { color: var(--ink); }
+            .badge.v { color: #fff; }
+            .booking { background: transparent; }
+            .booking .b-user { color: #B9BDB2; }
+            .booking.masked { color: #8E948A; }
+            .tl-booking { background: rgba(74,158,138,.16); }
+            .tl-booking.blocked { background: rgba(214,88,60,.16); }
+            .tl-booking.unresolved { background: rgba(196,150,66,.16); }
+            .tl-booking.masked { background: var(--paper-dim); color: #8E948A; }
+            .tl-outage-label { color: #E0705A; }
+            .conn-lamp { background: var(--paper-dim); }
+            .confirm-card { background: var(--paper); }
+            .view-toggle button { color: var(--ink); }
+            .view-toggle button.active { color: var(--paper); }
+            .action-row button.gray { color: var(--ink); }
+            .ok-note { color: #6FBFAE; }
+            .outage-banner { border-left-color: #E0705A; }
+            .plan-banner { border-left-color: #D6A54A; }
+            .reason-list { color: #C9A66B; }
+            .reason-note { color: #9AA39A; }
+            .mcp-note { color: #87928E; }
+        }
+
         /* ---------- responsive ---------- */
         @media (max-width: 1100px) {
             body { flex-direction: column; overflow: auto; height: auto; min-height: 100vh; }
@@ -274,7 +434,7 @@
         </div>
         <div class="chat-messages" id="chatMessages">
             <div class="message ai-message">
-                Report an equipment outage and I\u2019ll propose a replan for the affected sessions. Nothing changes on the board until you confirm the replan card.
+                Report an equipment outage and I&#8217;ll propose a replan for the affected sessions. Nothing changes on the board until you confirm the replan card.
             </div>
         </div>
         <div class="chat-input">
@@ -289,6 +449,13 @@
             <h2>Schedule — <span id="schedDate">2026-10-20</span></h2>
             <span class="badge v" id="verBadge">v-</span>
             <span class="badge role" id="roleBadge">not connected</span>
+            <span id="chainBadge" class="chain-ok" style="font-size:11px"></span>
+            <span id="ledgerBadge" style="margin-left:auto;font-size:11px"></span>
+        </div>
+        <div class="view-toggle" id="viewToggle">
+            <button id="btnList" class="active" onclick="setView('list')">List</button>
+            <button id="btnTimeline" onclick="setView('timeline')">Timeline</button>
+            <button id="btnAudit" onclick="setView('audit')">Audit log</button>
         </div>
         <div id="scheduleContent"><p>Connecting…</p></div>
     </div>
@@ -328,6 +495,10 @@
         </div>
     </div>
 
+    <div class="conn-lamp off" id="connLamp">
+        <span class="conn-dot"></span><span id="connText">connecting</span>
+    </div>
+
     <div class="hidden" id="loading">Working…</div>
 
     <script type="module">
@@ -338,19 +509,28 @@
         let currentToken = 'tok-manager';
         let lastSchedule = null;
         let lastProposals = new Map();
+        let currentView = 'list';
 
         const $ = (id) => document.getElementById(id);
         const OUT_SIGN = '\u2192';
         const IN_SIGN = '\u2190';
 
         async function safeCall(toolName, args) {
+            // Re-entrancy guard: a click storm (or double-click) must not
+            // open parallel MCP calls — the second fire used to race the
+            // first and produced 'already recorded' on a fresh state.
+            if (inflight) return { status: 'busy', message: 'A call is already in flight — one moment.' };
+            inflight = true;
             try {
                 return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
             } catch (err) {
                 logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
                 return { status: 'transport_error', message: 'MCP server unreachable or session dropped — start/restart it on :8765, then use Refresh.' };
+            } finally {
+                inflight = false;
             }
         }
+        let inflight = false;
 
         function logMCP(direction, method, status = '', note = '') {
             const entry = document.createElement('div');
@@ -385,17 +565,35 @@
 
         function reasonText(r) {
             if (!r) return '';
+            // Human phrasing per known reason code; anything unmapped keeps
+            // the code name only. Raw id fields are NEVER dumped to the chat
+            // (they belong to the json chip in the audit view, not to users).
+            const HUMAN = {
+                original_slot_in_outage: 'slot was inside the outage window',
+                stayed_on_original_equipment: 'kept on same equipment',
+                switched_equipment: 'switched equipment',
+                deadline_ok: 'still meets deadline',
+                deadline_missed: 'misses its deadline',
+                deadline_would_need: 'would need to finish by',
+                buffer: 'respects buffer',
+                outside_operating_hours: 'outside opening hours',
+                equipment_down: 'equipment is down',
+                no_permission: 'no permission for that equipment',
+                no_slot_found: 'no free slot found',
+                not_movable: 'booking cannot be moved',
+                user_busy: 'you have another booking then',
+                blocked_by_booking: 'conflicts with another booking',
+            };
+            const label = HUMAN[r.code] || r.code || '';
             const bits = [];
-            if (r.code) bits.push(r.code);
+            if (label) bits.push(label);
             if (r.start && r.end) bits.push('(' + fmtRange(r.start, r.end) + ')');
             else if (r.until) bits.push('until ' + fmtTime(r.until));
             else if (r.from && r.to) bits.push('(' + fmtRange(r.from, r.to) + ')');
             else if (r.opens && r.closes) bits.push('(open ' + r.opens + '\u2013' + r.closes + ')');
             else if (r.deadline) bits.push('(deadline ' + fmtTime(r.deadline) + ')');
             else if (r.at_least) bits.push('(needs \u2265' + r.at_least + ')');
-            for (const k of ['equipment_id', 'equipment_name', 'booking_id', 'outage_id', 'field', 'minutes']) {
-                if (r[k] !== undefined) bits.push(k + '=' + r[k]);
-            }
+            else if (r.minutes) bits.push('(' + r.minutes + ' min)');
             if (r.message) bits.push(r.message);
             return bits.join(' ');
         }
@@ -411,11 +609,23 @@
             return ' \u21b3 ' + reasons.map(r => reasonText(r)).join('  \u00b7  ');
         }
 
+        function eqDisplayName(equipmentId) {
+            // AppliedChange carries only ids (frozen contract), fall back to
+            // the live equipment table; the naive id->label replace printed
+            // lowercase suffixes like "Confocal b" — resolve real names.
+            const id = String(equipmentId || '');
+            const eq = ((lastSchedule || {}).equipment || []).find(e => e.id === id);
+            if (eq && eq.name) return eq.name;
+            return id.replace('confocal-a', 'Confocal A').replace('confocal-b', 'Confocal B') || id;
+        }
+
         function renderSchedule(data) {
             $('schedDate').textContent = data.date;
             $('verBadge').textContent = 'v' + data.schedule_version;
             $('roleBadge').textContent = data.viewer.name + ' \u00b7 ' + data.viewer.role;
             lastSchedule = data;
+
+            if (currentView === 'timeline') { renderTimeline(data); return; }
 
             const c = $('scheduleContent');
             let html = '';
@@ -489,20 +699,400 @@
             c.innerHTML = html;
         }
 
+        // ---------- timeline view (A1/A2) ----------
+        const DAY_START = '08:00';
+        const DAY_END = '17:00';
+        const AXIS_LEFT = 110;       // px reserved for row labels
+        function toMinutes(hhmm) {
+            const [h, m] = String(hhmm).slice(11, 16).split(':').map(Number);
+            return h * 60 + m;
+        }
+        function toMinutesStr(hhmm) {
+            const [h, m] = String(hhmm).split(':').map(Number);
+            return h * 60 + m;
+        }
+        function setView(v) {
+            currentView = v;
+            $('btnList').classList.toggle('active', v === 'list');
+            $('btnTimeline').classList.toggle('active', v === 'timeline');
+            $('btnAudit').classList.toggle('active', v === 'audit');
+            if (lastSchedule) renderSchedule(lastSchedule);
+            if (v === 'audit') {
+                loadAudit();
+                ensureAuditTimer();
+                loadChainBadge();   // tamper badge on every audit-tab visit
+            }
+        }
+
+        // ---------- audit view (2b) ----------
+        let auditCursor = null;      // next_before_id for "load older"
+        let auditOldestLoaded = null; // track for trim when reloading newest
+        let auditTimer = null;       // 10s auto-refresh
+        let auditToolFilter = '';    // '' = all tools
+
+        function auditFilterBar(message) {
+            const tools = ['', 'equipment_report_outage', 'schedule_propose_replan',
+                           'schedule_apply_replan', 'schedule_audit_get',
+                           'verify_audit_chain', 'reset_demo_data', 'debug_confirm'];
+            const label = { '': 'All tools', 'schedule_audit_get': 'audit_get',
+                            'debug_confirm': 'debug_confirm' };
+            const opts = tools.map(t =>
+                '<option value="' + t + '"' + (t === auditToolFilter ? ' selected' : '') + '>' +
+                escapeHtml(label[t] || t.replace(/_/g, ' ')) + '</option>').join('');
+            return '<div class="ok-note">' + escapeHtml(message) +
+                ' <button class="btn-mini" onclick="auditAutoToggle(this)" id="btnAuditAuto">auto: on</button>' +
+                ' <select class="btn-mini" id="auditToolSel" onchange="auditFilterChange(this.value)">' +
+                opts + '</select></div>';
+        }
+
+        function auditFilterChange(v) {
+            auditToolFilter = v;
+            if (typeof auditLastSig !== 'undefined') auditLastSig = null; // force repaint even if signature matches
+            loadAudit();
+        }
+
+        async function loadAudit() {
+            const args = { limit: 60 };
+            if (auditToolFilter) args.tool_filter = auditToolFilter;
+            const data = await safeCall('schedule_audit_get', args);
+            auditCursor = (data.status === 'ok') ? (data.next_before_id ?? null) : null;
+            if (data.status !== 'ok') {
+                // busy = another call holds the guard; keep the current view
+                if (data.status !== 'busy' || currentView !== 'audit')
+                    $('scheduleContent').innerHTML =
+                        '<div class="ok-note">' + escapeHtml(data.message || 'Audit unavailable.') + '</div>';
+                return;
+            }
+            const rows = data.entries.map(e => renderAuditRow(e)).join('');
+            auditJsonStore.clear();
+            auditJsonSeq = 0;
+            $('scheduleContent').innerHTML = auditFilterBar(data.message) +
+                '<div class="audit-wrap" id="auditWrap" aria-live="polite">' + (rows || '<p>No matching audit entries.</p>') + '</div>' +
+                (auditCursor ? '<div style="text-align:center;margin:10px 0">' +
+                    '<button class="btn-mini" onclick="loadOlderAudit()">load older &darr;</button></div>' : '');
+        }
+
+        function renderAuditRow(e) {
+            const toolRow = {
+                'equipment_report_outage': ['OUTAGE', 'alert'],
+                'schedule_propose_replan': ['PLAN', 'hold'],
+                'schedule_apply_replan': ['APPLY', e.result === 'applied' ? 'micro' : 'hold'],
+                'reset_demo_data': ['RESET', 'alert'],
+            }[e.tool] || [e.tool.toUpperCase().replace(/_/g, ' '), 'neutral'];
+            const dj = e.detail_json;
+            const djChip = dj ? ' <button class="btn-mini" data-k="' + auditJsonRegister(dj) +
+                '" onclick="auditJsonToggle(this, this.dataset.k)">json</button>' : '';
+            return '<div class="audit-row">' +
+                '<div class="a-when">' + escapeHtml(String(e.at).replace('T', ' ').slice(0, 23)) + '</div>' +
+                '<div class="a-who">' + escapeHtml(e.actor_name || '(anonymous)') + '<small> ' +
+                escapeHtml(e.actor_role || '') + '</small></div>' +
+                '<div class="a-kind k-' + toolRow[1] + '">' + escapeHtml(toolRow[0]) + '</div>' +
+                '<div class="a-what"><b>' + escapeHtml(e.result) + '</b> ' + escapeHtml(e.detail) + djChip + '</div>' +
+                '</div>';
+        }
+
+        // registry for collapsible structured-JSON mirrors (id -> pretty text)
+        const auditJsonStore = new Map();
+        let auditJsonSeq = 0;
+        function auditJsonRegister(dj) {
+            const k = String(++auditJsonSeq);
+            auditJsonStore.set(k, JSON.stringify(dj, null, 1));
+            return k;
+        }
+        function auditJsonToggle(btn, k) {
+            const open = btn.nextElementSibling;
+            if (open && open.classList.contains('audit-json')) {
+                open.remove();
+                return;
+            }
+            const pretty = auditJsonStore.get(k) || '{}';
+            const pre = document.createElement('pre');
+            pre.className = 'audit-json';
+            pre.textContent = pretty;
+            btn.after(pre);
+        }
+
+        async function loadOlderAudit() {
+            if (!auditCursor) return;
+            const btns = document.querySelectorAll('button');
+            btns.forEach(b => { if (b.textContent.includes('older')) b.disabled = true; });
+            const args = { limit: 60, before_id: auditCursor };
+            if (auditToolFilter) args.tool_filter = auditToolFilter;
+            try {
+                const data = await safeCall('schedule_audit_get', args);
+                if (data.status !== 'ok') return;
+                auditCursor = data.next_before_id ?? null;
+                const wrap = $('auditWrap');
+                if (!wrap) { loadAudit(); return; }
+                for (const e of data.entries) {
+                    wrap.insertAdjacentHTML('beforeend', renderAuditRow(e));
+                }
+                if (!auditCursor) {
+                    // no more pages: drop the load-older button
+                    wrap.parentElement.querySelectorAll('button').forEach(b => {
+                        if (b.textContent.includes('older')) b.remove();
+                    });
+                }
+            } finally {
+                // re-enable survivors after the page lands (or the call failed)
+                document.querySelectorAll('button').forEach(b => {
+                    if (b.textContent.includes('older') && b.isConnected) b.disabled = false;
+                });
+            }
+        }
+
+        // 10s auto-refresh while the audit tab is visible
+        async function auditAutoRefresh() {
+            if (currentView !== 'audit') return;
+            const args = { limit: 60 };
+            if (auditToolFilter) args.tool_filter = auditToolFilter;
+            const data = await safeCall('schedule_audit_get', args);
+            if (data.status !== 'ok') return;
+            const first = data.entries[0];
+            // only repaint when something actually changed since last paint
+            const sig = auditToolFilter + '#' +
+                data.entries.map(e => e.at + e.tool + e.result).join('|');
+            if (sig === auditLastSig) return;
+            auditLastSig = sig;
+            auditCursor = data.next_before_id ?? null;
+            const rows = data.entries.map(e => renderAuditRow(e)).join('');
+            auditJsonStore.clear();
+            auditJsonSeq = 0;
+            // preserve the reader's scroll position across live repaints
+            const panel = $('scheduleContent').closest('.schedule-panel');
+            const st = panel ? panel.scrollTop : 0;
+            $('scheduleContent').innerHTML = auditFilterBar(data.message) +
+                '<div class="audit-wrap" id="auditWrap" aria-live="polite">' + (rows || '<p>No matching audit entries.</p>') + '</div>' +
+                (auditCursor ? '<div style="text-align:center;margin:10px 0">' +
+                    '<button class="btn-mini" onclick="loadOlderAudit()">load older &darr;</button></div>' : '');
+            if (panel) panel.scrollTop = st;
+        }
+        var auditLastSig = null;
+
+        function auditAutoToggle(btn) {
+            if (auditTimer) {
+                clearInterval(auditTimer);
+                auditTimer = null;
+                btn.textContent = 'auto: off';
+            } else {
+                auditTimer = setInterval(auditAutoRefresh, 10000);
+                btn.textContent = 'auto: on';
+            }
+        }
+
+        function ensureAuditTimer() {
+            if (!auditTimer) auditTimer = setInterval(auditAutoRefresh, 10000);
+        }
+
+        // Chain-integrity badge: manager sees "chain verified" / tamper warning.
+        // Transport guards ledger lives right of it — counts 403/429 rejections
+        // (hash-chained, reset-surviving) so operators see who hit the door.
+        async function loadChainBadge() {
+            const data = await safeCall('verify_audit_chain', {});
+            const el = $('chainBadge');
+            if (!data) return;
+            if (data.status !== 'ok' && data.status !== 'busy') { el.style.display = 'none'; return; }
+            if (data.status === 'busy') return; // keep last badge while a call is in flight
+            el.style.display = '';
+            if (data.chain_ok) {
+                el.className = 'chain-ok';
+                el.textContent = '\u2713 chain ' + data.checked + ' rows';
+                el.title = 'Audit hash chain verified over ' + data.checked +
+                    ' audit rows; head hash ' + (data.head_hash || '').slice(0, 12) + '\u2026' +
+                    ' (pin /metrics audit_chain.head_hash to detect later tampering)';
+            } else {
+                el.className = 'chain-bad';
+                el.textContent = '\u26a0 tamper @row ' + data.broken_at;
+                el.title = 'Audit hash chain break at row ' + data.broken_at +
+                    ' (' + (data.reason || 'unknown') + ')';
+            }
+            loadLedgerBadge();
+        }
+
+        async function loadLedgerBadge() {
+            // transport_ledger summary from /metrics (aggregate through the
+            // proxy); non-manager sees nothing extra, manager gets counters.
+            try {
+                const res = await fetch('/metrics', { cache: 'no-store' });
+                if (!res.ok) return;
+                const m = await res.json();
+                const t = m && m.server && m.server.database &&
+                    m.server.database.transport_ledger;
+                const el = $('ledgerBadge');
+                if (!el || !t) return;
+                if (!t.ok) {
+                    el.className = 'ledger-warn';
+                    el.textContent = '\u26a0 transport ledger tamper @' + t.broken_at;
+                    el.title = 'Transport ledger chain break at row ' + t.broken_at;
+                    return;
+                }
+                const ev = (t.events || {});
+                const parts = [];
+                for (const k of ['origin', 'host', 'rate_429']) {
+                    if (ev[k]) parts.push(k + ':' + ev[k]);
+                }
+                el.className = parts.length ? 'ledger-warn' : 'ledger-ok';
+                el.textContent = parts.length
+                    ? '\u26a0 guarded ' + parts.join(' ')
+                    : '\u2713 transport clean';
+                el.title = 'Transport ledger (hash-chained, survives demo reset): ' +
+                    (t.rows) + ' rejection rows; head ' +
+                    (t.head_hash || '').slice(0, 12) + '\u2026';
+            } catch (e) { /* metrics unavailable — badge stays quiet */ }
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && auditTimer) {
+                clearInterval(auditTimer); auditTimer = null;
+                const b = $('btnAuditAuto'); if (b) b.textContent = 'auto: off';
+            }
+        });
+
+        function renderTimeline(data) {
+            const t0 = toMinutesStr(DAY_START);
+            const t1 = toMinutesStr(DAY_END);
+            const span = t1 - t0;
+            const pct = (min) => ((min - t0) / span * 100).toFixed(3) + '%';
+
+            // hour ticks row
+            let ticks = '';
+            for (let m = t0; m < t1; m += 60) {
+                ticks += '<span style="width:' + (60 / span * 100) + '%">' + String(m / 60).padStart(2, '0') + ':00</span>';
+            }
+
+            // outage bands per equipment
+            const outByEq = {};
+            for (const o of (data.open_outages || [])) {
+                (outByEq[o.equipment] = outByEq[o.equipment] || []).push(o);
+            }
+
+            let rows = '';
+            for (const eq of (data.equipment || [])) {
+                const eqBookings = (data.bookings || []).filter(b => b.equipment === eq.id);
+                const eqOutages = outByEq[eq.id] || [];
+                rows += '<div class="timeline-row"><div class="timeline-track">';
+                rows += '<div class="timeline-label"><span class="who">' + escapeHtml(eq.name) + '</span></div>';
+                for (const o of eqOutages) {
+                    const left = pct(toMinutes(o.start));
+                    const width = 'calc(' + pct(toMinutes(o.end)) + ' - ' + pct(toMinutes(o.start)) + ')';
+                    rows += '<div class="tl-outage" style="left:' + left + ';width:' + width + '">';
+                    rows += '<div class="tl-outage-label">down \u00b7 ' + escapeHtml((o.reason || '').slice(0, 26)) + '</div></div>';
+                }                for (const b of eqBookings) {
+                    const masked = b.masked === true;
+                    let cls = 'tl-booking';
+                    if (masked) cls += ' masked';
+                    else if (b.status === 'blocked') cls += ' blocked';
+                    else if (b.status === 'unresolved') cls += ' unresolved';
+                    // A2: fade bookings caught by an open outage on THIS lane
+                    let faded = '';
+                    if (!masked && b.status === 'blocked') faded = ' faded';
+                    const s = toMinutes(b.start), e = toMinutes(b.end);
+                    const left = pct(s);
+                    const width = 'calc(' + pct(e) + ' - ' + pct(s) + ')';
+                    const who = masked ? 'Occupied' : escapeHtml(b.user);
+                    rows += '<div class="' + cls + faded + '" style="left:' + left + ';width:' + width + '" title="' +
+                        who + ' ' + fmtRange(b.start, b.end) + (!masked && b.status !== 'confirmed' ? ' \u00b7 ' + escapeHtml(b.status) : '') + '">' +
+                        '<span class="t">' + fmtRange(b.start, b.end) + '</span> <span class="u">' + who + '</span></div>';
+                }
+                rows += '</div></div>';
+            }
+
+            const isManager = data.viewer.role === 'manager';
+            let actions = '<div class="action-row">';
+            if (isManager) {
+                actions += '<button onclick="window.reportOutageFlow()">Report outage (Confocal A 10:00\u201316:00)</button>';
+                for (const o of (data.open_outages || [])) {
+                    actions += '<button class="amber" onclick="window.proposeFlow(\'' + escapeHtml(o.id) +
+                        '\')">Propose replan for ' + escapeHtml(o.id) + '</button>';
+                }
+                for (const p of (data.pending_plans || [])) {
+                    actions += '<button class="green" onclick="window.applyFlow(\'' + escapeHtml(p.plan_id) +
+                        '\', ' + data.schedule_version + ')">Apply ' + escapeHtml(p.plan_id) + '</button>';
+                }
+            }
+            actions += '<button class="gray" onclick="window.loadSchedule()">Refresh</button></div>';
+
+            let banners = '';
+            for (const o of (data.open_outages || [])) {
+                banners += '<div class="outage-banner"><b>' + escapeHtml(o.equipment_name) +
+                    '</b> down ' + fmtRange(o.start, o.end) +
+                    (o.reason ? ' \u2014 ' + escapeHtml(o.reason) : '') +
+                    ' \u00b7 ' + o.unresolved_booking_ids.length + ' unresolved</div>';
+            }
+            for (const p of (data.pending_plans || [])) {
+                banners += '<div class="plan-banner">Pending plan <code>' + escapeHtml(p.plan_id) +
+                    '</code> for outage ' + escapeHtml(p.outage_id) + ' \u2014 ' +
+                    p.change_count + ' move(s), ' + p.unresolved_count + ' unresolved \u00b7 based on v' +
+                    p.based_on_version + '</div>';
+            }
+            if (!(data.open_outages || []).length && !(data.pending_plans || []).length) {
+                banners += '<div class="ok-note">No open outages \u2014 all bookings in place.</div>';
+            }
+
+            $('scheduleContent').innerHTML = banners +
+                '<div class="timeline-wrap">' +
+                '<div class="timeline-hour-ticks">' + ticks + '</div>' +
+                rows +
+                '</div>' + actions;
+        }
+
         async function connect(token) {
-            if (client) await closeSession(client);
+            if (client) { try { await closeSession(client); } catch {} }
+            setLamp('retry', 'connecting');
             logMCP('out', 'initialize', '', 'token ' + token.slice(4) + '\u2026 (identity from header)');
             client = await createSession(token, {
                 onLog: (e) => logMCP(e.direction || 'in', e.method || ('event: ' + JSON.stringify(e).slice(0, 120)), '', e.note || ''),
                 onElicit: showConfirmCard,
             });
+            setLamp('on', 'connected');
             logMCP('in', 'initialize', 'OK', 'protocol 2025-11-25 \u00b7 elicitation capability declared');
         }
 
+        // ---------- B4: connection lamp + auto-reconnect with backoff ----------
+        function setLamp(state, text) {
+            const lamp = $('connLamp');
+            lamp.classList.remove('on', 'retry', 'off');
+            lamp.classList.add(state);
+            $('connText').textContent = text;
+        }
+
+        let reconnecting = false;
+        async function reconnectLoop() {
+            if (reconnecting) return;
+            reconnecting = true;
+            let delay = 1000;
+            while (!client) {
+                setLamp('retry', 'reconnecting in ' + Math.round(delay / 1000) + 's');
+                await new Promise(r => setTimeout(r, delay));
+                delay = Math.min(delay * 2, 15000);
+                try {
+                    await connect(currentToken);
+                    await loadSchedule();
+                    addMessage('Connection restored \u2014 schedule reloaded.', 'system');
+                    reconnecting = false;
+                    return;
+                } catch (err) {
+                    client = null;
+                    logMCP('in', 'initialize', 'FAIL', err.message);
+                }
+            }
+            reconnecting = false;
+        }
+
         async function loadSchedule() {
-            if (!client) return;
+            if (!client) { reconnectLoop(); return; }
             const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
-            if (data.status === 'ok') renderSchedule(data);
+            if (data.status === 'busy') return lastSchedule;
+            if (data.status === 'ok') {
+                setLamp('on', 'connected');
+                renderSchedule(data);
+                if (data.viewer && data.viewer.role === 'manager') loadChainBadge();
+            }
+            else if (data.status === 'transport_error') {
+                setLamp('off', 'server down');
+                client = null;
+                reconnectLoop();
+                return;
+            }
             else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
             return data;
         }
@@ -518,6 +1108,7 @@
         }
 
         async function reportOutageFlow() {
+            if (!flowEnter()) return;  // double-click / in-flight guard
             showLoading(true);
             try {
                 const data = await safeCall('equipment_report_outage', {
@@ -526,8 +1117,20 @@
                     end: DEMO_DATE + 'T16:00:00+01:00',
                     reason: 'Laser failure \u2014 reported by facility',
                 });
-                handleOutageResult(data);
+                if (data.status === 'busy') { addMessage('One moment — the previous call is still in flight.', 'system'); return; }
+                await handleOutageResult(data);
             } finally { showLoading(false); }
+        }
+        // Cooldown + parallel-call guard for user-triggered flows. Chained
+        // internal calls (auto-propose after a report) pass bypass=true so
+        // the sequence report -> propose is never self-blocked.
+        let flowGuardUntil = 0;
+        function flowEnter(bypass) {
+            if (!bypass) {
+                if (inflight || Date.now() < flowGuardUntil) return false;
+                flowGuardUntil = Date.now() + 800;
+            }
+            return true;
         }
 
         function handleOutageResult(data) {
@@ -538,7 +1141,7 @@
                         ' booking(s) affected, ' + data.unaffected_count + ' untouched. Schedule is now v' +
                         data.schedule_version + '. Proposing a replan\u2026', 'outage-message');
                     logMCP('in', 'report_outage', 'recorded', 'outage ' + data.outage_id + ', affected ' + n);
-                    proposeFlow(data.outage_id);
+                    proposeFlow(data.outage_id, data.schedule_version);
                     break;
                 }
                 case 'duplicate_outage':
@@ -561,13 +1164,19 @@
             }
         }
 
-        async function proposeFlow(outageId) {
+        async function proposeFlow(outageId, versionHint) {
             showLoading(true);
             try {
+                // Use the explicit version hint when the caller has the
+                // fresher number (report response bumps the version before
+                // lastSchedule has been re-fetched).
+                const v = (versionHint != null) ? versionHint :
+                    (lastSchedule && lastSchedule.schedule_version);
                 const data = await safeCall('schedule_propose_replan', {
                     outage_id: outageId,
-                    schedule_version: lastSchedule.schedule_version,
+                    schedule_version: v,
                 });
+                if (data.status === 'busy') { addMessage('One moment — the previous call is still in flight.', 'system'); return; }
                 handleProposeResult(data);
             } finally { showLoading(false); }
         }
@@ -628,11 +1237,15 @@
 
         async function applyFlow(planId, version) {
             showLoading(true);
+            // Record the plan being confirmed so showConfirmCard can pick
+            // the right cached proposal (the frozen ask text carries no id).
+            lastApplyPlanId = planId;
             try {
                 const data = await safeCall('schedule_apply_replan', {
                     plan_id: planId,
                     schedule_version: version,
                 });
+                if (data.status === 'busy') { addMessage('One moment — the previous call is still in flight.', 'system'); return; }
                 handleApplyResult(data);
             } catch (err) {
                 addMessage('Apply failed: ' + err.message, 'outage-message');
@@ -650,7 +1263,7 @@
                         (cb.name || cb.user_id) + ' at ' + String(data.confirmed_at || '').substring(11, 19) + '.', 'ai');
                     for (const ch of (data.applied_changes || [])) {
                         addMessage('\u2714 ' + ch.user + ': ' + fmtRange(ch.from_start, ch.from_end) + ' => ' +
-                            String(ch.new_equipment).replace('confocal-', 'Confocal ') + ' ' +
+                            eqDisplayName(ch.new_equipment) + ' ' +
                             fmtRange(ch.to_start, ch.to_end) + reasonsPlain(ch.reasons), 'system');
                     }
                     for (const u of (data.unresolved || [])) {
@@ -690,6 +1303,7 @@
             showLoading(true);
             try {
                 const data = await safeCall('reset_demo_data', {});
+                if (data.status === 'busy') { addMessage('One moment — the previous call is still in flight.', 'system'); return; }
                 if (data.status === 'reset') {
                     addMessage('Demo data reset to seed state (v1).', 'system');
                 } else if (data.status === 'forbidden') {
@@ -704,13 +1318,27 @@
 
         let pendingElicit = null;
         let lastFocused = null;
+        let lastApplyPlanId = null;
         function showConfirmCard(req) {
             return new Promise((resolve) => {
                 pendingElicit = { resolve };
                 const cc = $('confirmCard');
                 const box = $('confirmChanges');
                 let html = '';
-                const prop = Array.from(lastProposals.values()).pop();
+                // The frozen ask text carries no plan id ("Apply this
+                // replan? N bookings move..."), and the proposal cache is
+                // keyed by outage id (O1), not by plan id — so pick the
+                // cached proposal whose plan_id matches the plan flow'd in
+                // applyFlow (recorded in lastApplyPlanId just before the
+                // tools call that triggers this elicitation).
+                let prop = null;
+                const direct = lastProposals.get(lastApplyPlanId || '');
+                if (direct && direct.plan_id === lastApplyPlanId) prop = direct;
+                if (!prop) {
+                    for (const v of lastProposals.values()) {
+                        if (v && v.plan_id === lastApplyPlanId) { prop = v; break; }
+                    }
+                }
                 if (prop) {
                     for (const ch of (prop.changes || [])) {
                         html += '<div class="confirm-item">\u21bb <b>' + escapeHtml(ch.user) + '</b>: ' +
@@ -736,6 +1364,8 @@
                 cc.setAttribute('role', 'dialog');
                 cc.setAttribute('aria-modal', 'true');
                 cc.setAttribute('aria-labelledby', 'confirmTitle');
+                // make background panels inert so Tab and SR cannot leak behind the modal
+                document.querySelectorAll('.chat-panel, .schedule-panel, .dev-panel').forEach(p => p.setAttribute('inert', ''));
                 lastFocused = document.activeElement;
                 $('confirmYes').focus();
                 $('confirmYes').onclick = () => finish(true);
@@ -752,6 +1382,7 @@
                     $('confirmOverlay').style.display = 'none';
                     cc.classList.add('hidden');
                     pendingElicit = null;
+                    document.querySelectorAll('.chat-panel, .schedule-panel, .dev-panel').forEach(p => p.removeAttribute('inert'));
                     if (lastFocused && lastFocused.focus) lastFocused.focus();
                     lastFocused = null;
                     resolve({ confirmed: v });
@@ -766,6 +1397,7 @@
             }
             $('confirmOverlay').style.display = 'none';
             $('confirmCard').classList.add('hidden');
+            document.querySelectorAll('.chat-panel, .schedule-panel, .dev-panel').forEach(p => p.removeAttribute('inert'));
         }
 
         document.addEventListener('keydown', (ev) => {
@@ -785,20 +1417,40 @@
             const t = text.toLowerCase();
             const mA = /\bconfocal[- ]?a\b/.test(t);
             const mB = /\bconfocal[- ]?b\b/.test(t);
-            const until = t.match(/until\s+(\d{1,2})(?::(\d{2}))?/);
-            const from = t.match(/from\s+(\d{1,2})(?::(\d{2}))?/);
+            // am/pm aware: "until 4pm" = 16:00, "from 2pm" = 14:00. A bare
+            // hour keeps its plain meaning ONLY in the am window; a 1–7
+            // with pm is shifted +12 (afternoon chat phrasing).
+            const parseH = (num, suffix) => {
+                let h = parseInt(num, 10);
+                if (/\dpm|\d\s?pm/.test(suffix) || /p\.?m\.?/.test(suffix || '')) {
+                    if (h < 12) h += 12;
+                } else if (/\dam|a\.?m\.?/.test(suffix || '')) {
+                    if (h === 12) h = 0;
+                }
+                return h;
+            };
+            const until = t.match(/until\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?/);
+            const from = t.match(/from\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?/);
             if ((mA || mB) && (until || from)) {
                 const eq = mB ? 'confocal-b' : 'confocal-a';
-                const startH = from ? parseInt(from[1], 10) : 10;
+                // default window only when the phrase is missing entirely
+                const startH = from ? parseH(from[1], from[3]) : 10;
                 const startM = from && from[2] ? from[2] : '00';
-                const endH = until ? parseInt(until[1], 10) : 16;
+                const endH = until ? parseH(until[1], until[3]) : 16;
                 const endM = until && until[2] ? until[2] : '00';
                 if (currentToken !== 'tok-manager') {
                     addMessage('Only the manager (Priya) can record outages. Switch identity on the right.', 'outage-message');
                     return;
                 }
+                if (endH <= startH || startH < 8 || endH > 24) {
+                    addMessage('I read that as ' + String(startH).padStart(2, '0') + ':' + startM +
+                        '\u2013' + String(endH).padStart(2, '0') + ':' + endM +
+                        ' which doesn\u2019t fit the demo day \u2014 try e.g. "confocal A is down from 2pm until 5pm".', 'outage-message');
+                    return;
+                }
                 addMessage('Understood \u2014 reporting ' + (eq === 'confocal-a' ? 'Confocal A' : 'Confocal B') +
-                    ' down from ' + startH + ':' + startM + ' to ' + endH + ':' + endM + ' today.', 'ai');
+                    ' down from ' + String(startH).padStart(2, '0') + ':' + startM + ' to ' +
+                    String(endH).padStart(2, '0') + ':' + endM + ' today.', 'ai');
                 doReport(eq, DEMO_DATE + 'T' + String(startH).padStart(2, '0') + ':' + startM + ':00+01:00',
                     DEMO_DATE + 'T' + String(endH).padStart(2, '0') + ':' + endM + ':00+01:00');
             } else if (t.indexOf('apply') >= 0) {
@@ -828,16 +1480,36 @@
         window.resetDemo = resetDemo;
         window.loadSchedule = loadSchedule;
         window.sendMessage = sendMessage;
+        window.auditJsonToggle = auditJsonToggle;
         window.changeUser = changeUser;
         window.showConfirmCard = showConfirmCard;
+        window.setView = setView;
+        // audit-view inline handlers (filter bar + auto toggle)
+        window.auditFilterChange = auditFilterChange;
+        window.auditAutoToggle = auditAutoToggle;
+        window.loadOlderAudit = loadOlderAudit;
 
         window.addEventListener('DOMContentLoaded', async () => {
+            // Deep link first: /#audit (or /?view=audit for tools that strip
+            // fragments) switches the tab even before the MCP connection is
+            // up — tab switching is a pure UI concern and the audit view
+            // retries loading on its own.
+            try {
+                const vparam = new URLSearchParams(location.search).get('view');
+                const vhash = location.hash.replace('#', '');
+                const want = ['audit', 'timeline'].includes(vparam) ? vparam
+                    : (['audit', 'timeline'].includes(vhash) ? vhash : null);
+                if (want) setView(want);
+            } catch (_) { /* ignore malformed query */ }
             try {
                 await connect(currentToken);
                 await loadSchedule();
             } catch (err) {
                 logMCP('in', 'initialize', 'FAIL', err.message);
-                addMessage('Cannot reach the MCP server on :8765 \u2014 start it, then use Refresh.', 'outage-message');
+                setLamp('off', 'server down');
+                client = null;
+                addMessage('Cannot reach the MCP server on :8765 \u2014 it will retry automatically once it is back.', 'outage-message');
+                reconnectLoop();
             }
         });
     </script>

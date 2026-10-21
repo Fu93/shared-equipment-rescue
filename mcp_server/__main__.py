@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 
 def main() -> None:
     from .server import main as server_main

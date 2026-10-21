@@ -57,6 +57,10 @@ async def main():
     if os.path.exists(dbp):
         os.remove(dbp)
     os.environ["SER_DB_PATH"] = dbp
+    # the suite fires sessions faster than any real client; a token bucket
+    # built for untrusted traffic must not flake the acceptance run
+    # (same policy as tests/test_server.py)
+    os.environ.setdefault("SER_NO_RATE_LIMIT", "1")
 
     import uvicorn
     from mcp_server.server import build_app

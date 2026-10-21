@@ -24,7 +24,7 @@ Search rules (contract §5.3 / plan §10):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
@@ -245,7 +245,7 @@ def compute_plan(
         day_close=world.day_close,
     )
     affected = affected_by(outage, world.bookings)
-    os_, oe = parse_dt(outage.start), parse_dt(outage.end)
+    _, oe = parse_dt(outage.start), parse_dt(outage.end)
     movable_affected = [b for b in affected if b.movable]
     nonmovable_affected = [b for b in affected if not b.movable]
 
@@ -432,7 +432,13 @@ def _fill_earliest_possible(
                     _r("deadline_would_need", at_least=fmt(best_finish))
                 )
         elif target.deadline is None and not found_any:
-            entry.reasons.append(_r("no_slot_found"))
+            # The base unresolved reasons built in compute_plan already carry
+            # a no_slot_found entry (compute_plan attaches it for every
+            # movable-no-fit booking); appending a second copy made the UI
+            # narrative print the same sentence twice. Only add it when the
+            # base list somehow lacks it.
+            if not any(r.code == "no_slot_found" for r in entry.reasons):
+                entry.reasons.append(_r("no_slot_found"))
 
 
 # NOTE on EarliestPossible.status semantics (contract §5): a moved-late slot

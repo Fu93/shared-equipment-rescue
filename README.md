@@ -53,7 +53,7 @@ Clients **without** an elicitation callback are safe by design: apply returns `n
 
 Identity comes **only** from the per-request header — never from tool arguments.
 
-## The six tools (contracts/)
+## The eight tools (contracts/)
 
 `contracts/tools.json` holds the machine-readable input/output schemas (generated verbatim from the live tool registry, locked by tests). `contracts/examples/` holds 13 frozen end-to-end fixtures replayed byte-exact in CI:
 
@@ -63,7 +63,9 @@ Identity comes **only** from the per-request header — never from tool argument
 | `equipment_report_outage` | **yes** | manager-only; duplicates rejected |
 | `schedule_propose_replan` | no (creates plan row) | stale-check + idempotent plan_id |
 | `schedule_apply_replan` | **yes** | **elicitation-gated**; human confirm required |
-| `reset_demo_data` | **yes** | manager-only; restores seed schedule (version 1) |
+| `schedule_audit_get` | no | **who did what, when** — managers see the full trail; researchers see own actions + public events (outages, replans, applies, resets). Token hints are truncated (`tok-…`), never a full secret. |
+| `verify_audit_chain` | no | manager-only; recomputes the SHA-256 hash chain over the audit trail and flags any edit, deletion or splice (`broken_at` row). |
+| `reset_demo_data` | **yes** | manager-only; restores seed schedule (version 1); clears the audit trail and records the reset itself as the final entry |
 | `debug_confirm` | no | echoes elicitation wiring for client bring-up |
 
 ## Engine guarantees (§10 rules)
@@ -109,17 +111,59 @@ SSE chunk-by-chunk so server-initiated `elicitation/create` reaches the browser 
 The apply confirmation card is answered only by a human click — the demo identity is
 carried solely in the `Authorization: Bearer <token>` header, never in tool arguments.
 
-## Tests
+## Hardening (OWASP MCP Security Cheat Sheet)
+
+Transport-level header validation runs at **both** layers and rejects
+DNS-rebinding browsers / cross-site attackers before any MCP logic executes:
+
+| layer | check | behavior |
+|---|---|---|
+| web proxy (`web/app.py`) | `Origin` + `Host` allowlist | present-but-unrecognized → JSON-RPC error `-32002`, HTTP 403; absent Origin allowed (native MCP clients send none) |
+| MCP server (`mcp_server/server.py`) | pure-ASGI `TransportGuardMiddleware` wrapping the Streamable HTTP app | same policy for anyone bypassing the proxy |
+
+Plus a structured **audit trail** (`audit_log` SQLite table, `schedule_audit_get`
+tool, "Audit log" tab in the web UI): every tool call records actor, role, tool,
+result, detail and a truncated token hint. Writes are best-effort and can never
+break a tool response. Production-grade details: **WAL journal mode** (concurrent
+reads never block on the write lock), **cursor pagination** (`before_id` +
+`tool_filter` on `schedule_audit_get`, `next_before_id` cursor returned), a
+**10k-row rolling retention** enforced after every audit insert, and a **SHA-256
+hash chain** over the trail — `verify_audit_chain` (manager-only) recomputes the
+chain and flags edits, deletions or splices, and the UI shows a live
+"✓ chain N rows" / "⚠ tamper @row" badge. Both the MCP guard middleware and the
+web proxy apply a **per-IP token-bucket rate limit** (~4 req/s, burst 16) that
+answers floods with HTTP 429 / `-32002` instead of letting them through. The
+audit tab carries a **tool filter dropdown** and 10-second auto-refresh; each
+worker thread reuses one **thread-local SQLite connection**; deployments on a
+different proxy port / HTTPS tunnel can whitelist their browser origin via
+`SER_ALLOWED_ORIGINS` (comma-separated exact origins, honoured by both layers).
+
+Tier 3 additions: every audit row also stores a **structured JSON mirror**
+(`detail_json`) of the event — `{tool, result, ...structured keys}` such as
+`plan_id`, `blocked_count` or `schedule_version` — exposed through
+`schedule_audit_get` and rendered as an expandable `json` chip in the audit tab,
+so SIEM-style log scrapers get machine-readable fields without parsing prose
+(the mirror is best-effort and excluded from the hash chain, so its structure
+can evolve without invalidating tamper evidence). A **`GET /metrics`**
+observability endpoint exists on both layers (MCP :8765 and the web proxy
+:8080, which aggregates both): process uptime, token-bucket state, schedule
+version, table row counts and journal mode — JSON, `no-store`, before any MCP
+session resources are consumed. The UI ships a **deep link** (`/#audit` /
+`/?view=audit`) that opens the audit tab pre-connect, covered by a
+**Playwright visual regression suite** (9 browser checks: deep link, chain
+badge, json chip expansion, tool filter, timeline).
+
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 51 passed
+python -X utf8 -m pytest tests/ -q      # 56 passed
 ```
 
 - `test_engine.py` (10): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression.
 - `test_engine_edges.py` (6): boundary edges — half-open intervals, zero-duration, zero-buffer adjacency, unknown equipment.
 - `test_contract.py` (17): schema equality against `contracts/tools.json` + byte-exact replay of 13 frozen examples under `SER_FROZEN_NOW=2026-10-20T12:00:00+01:00`.
-- `test_server.py` (18): **real uvicorn + real MCP client** over Streamable HTTP — auth tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset, and a **crash/restart cycle** that proves outage + pending plan survive a server restart (subprocess, same SQLite file).
+- `test_server.py` (8): **real uvicorn + real MCP client** over Streamable HTTP — token/tool tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset, and a **crash/restart cycle** that proves outage + pending plan survive a server restart (subprocess, same SQLite file).
 - `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
+- `test_accountability.py` (5): real-client audit-trail checks — researcher public-visibility SQL boundary, concurrent double-apply applies exactly exactly once (TOCTOU), 403 origin/host rejections land in the hash-chained transport ledger, the ledger survives `reset_demo_data`, and a replayed apply leaves an audit row with the chain verifying green.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 

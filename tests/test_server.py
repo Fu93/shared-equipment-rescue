@@ -106,6 +106,8 @@ async def server_env():
     dbp = os.path.join(tempfile.gettempdir(), "ser_test_server.db")
     if os.path.exists(dbp):
         os.remove(dbp)
+    # tests share one loopback IP and fire bursts faster than any real client
+    os.environ["SER_NO_RATE_LIMIT"] = "1"
     server, task = await _start_server(dbp)
     yield {"db": dbp}
     server.should_exit = True
@@ -131,6 +133,8 @@ async def test_initialize_and_list_tools(server_env):
             "equipment_report_outage",
             "schedule_propose_replan",
             "schedule_apply_replan",
+            "schedule_audit_get",
+            "verify_audit_chain",
             "reset_demo_data",
             "debug_confirm",
         }
@@ -290,6 +294,7 @@ def _spawn_server(port, dbp):
         "os.environ['SER_DB_PATH'] = %r\n" % dbp +
         "os.environ['SER_FROZEN_NOW'] = '2026-10-20T12:00:00+01:00'\n"
         "os.environ.setdefault('SER_FROZEN_IN_TESTS', '0')\n"
+        "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
         "import uvicorn\n"
         "from mcp_server.server import build_app\n"
         "async def main():\n"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class Viewer(BaseModel):
@@ -231,6 +231,40 @@ class ApplyResult(BaseModel):
 class ResetResult(BaseModel):
     status: str
     schedule_version: int
+    message: Optional[str] = None
+
+
+class AuditEntry(BaseModel):
+    at: str
+    actor_id: str = ""
+    actor_name: str = ""
+    actor_role: str = ""
+    tool: str
+    result: str
+    detail: str = ""
+    token_hint: str = "-"
+    # machine-readable mirror of `detail` (parsed JSON object; None = absent)
+    detail_json: Optional[dict] = None
+
+
+class AuditGetResult(BaseModel):
+    status: str  # ok | forbidden
+    schedule_version: int
+    entries: List[AuditEntry] = []
+    next_before_id: Optional[int] = None  # cursor: pass to before_id for older rows
+    viewer: Optional[Viewer] = None
+    message: Optional[str] = None
+
+
+class ChainVerifyResult(BaseModel):
+    status: str  # ok | forbidden
+    schedule_version: int
+    chain_ok: Optional[bool] = None  # None when forbidden
+    checked: int = 0  # rows verified before the break (total when intact)
+    head_id: Optional[int] = None
+    head_hash: Optional[str] = None  # 64-hex chain head; pin externally to anchor
+    broken_at: Optional[int] = None
+    reason: Optional[str] = None  # hash mismatch | prev_hash mismatch | row deleted
     message: Optional[str] = None
 
 
