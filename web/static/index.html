@@ -270,6 +270,10 @@
         .action-row button.gray { background: transparent; color: var(--ink); }
         .action-row button:disabled { background: #CFC8BC; border-color: #CFC8BC; color: #888; cursor: not-allowed; }
         .action-row button:not(:disabled):hover { filter: brightness(1.15); }
+        .action-row button:not(:disabled):active { filter: brightness(0.88); transform: translateY(1px); }
+        .btn-mini:hover { border-color: var(--ink); }
+        .btn-mini:active { background: rgba(27, 43, 36, 0.12); }
+        .chat-input button:active { filter: brightness(0.85); transform: translateY(1px); }
 
         /* ---------- right: protocol console ---------- */
         .dev-panel {

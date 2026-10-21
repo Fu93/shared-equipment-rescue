@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 
-ROOT = r"C:\Users\nn201\OneDrive - University of Glasgow\Desktop\Amazon\shared-equipment-rescue"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAY = "2026-10-20"
 MCP_BOOT = os.path.join(tempfile.gettempdir(), "ser_mcp_dev_server2.py")
 DBP = os.path.join(tempfile.gettempdir(), "ser_webdev2.db")

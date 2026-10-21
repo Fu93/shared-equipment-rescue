@@ -22,15 +22,44 @@ import mcp  # noqa: E402
 from mcp import ClientSession, types  # noqa: E402
 from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
 
-MCP_PORT = int(os.environ.get("SER_TEST_PORT", "8907"))
+MCP_PORT = int(os.environ.get("SER_TEST_PORT", "0"))  # 0 = OS-assigned ephemeral port
 URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
 TOKENS = {"manager": "tok-manager", "chen": "tok-chen", "li": "tok-li", "wang": "tok-wang"}
+
+
+def _bound_port(server) -> int:
+    """Extract the actual bound port from a started uvicorn Server
+    (required when binding port=0 for an OS-assigned ephemeral port)."""
+    ports = []
+    for s in getattr(server, "servers", None) or []:
+        for sock in getattr(s, "sockets", None) or []:
+            ports.append(sock.getsockname()[1])
+    assert len(ports) == 1, f"expected exactly one bound port, got {ports}"
+    return ports[0]
+
+
+async def _wait_started(server, task):
+    """Wait for uvicorn readiness; fail with a *clear* reason instead of a
+    cascade of 8 confusing AssertionError cascades when startup fails
+    (e.g. the port is already taken by another application on this machine)."""
+    for _ in range(100):
+        if getattr(server, "started", False):
+            return
+        if task.done():
+            exc = task.exception()
+            raise RuntimeError(
+                f"uvicorn failed to start (port conflict or app error): {exc!r}"
+            )
+        await asyncio.sleep(0.05)
+    raise RuntimeError("uvicorn did not start within 5 seconds")
 
 
 @pytest.fixture(scope="module")
 def anyio_backend():
     return "asyncio"
 
+
+CONFIGURED_PORT = MCP_PORT  # 0 means ephemeral; resolved after bind
 
 async def _start_server(dbp: str):
     os.environ["SER_DB_PATH"] = dbp
@@ -43,12 +72,9 @@ async def _start_server(dbp: str):
     server = uvicorn.Server(config)
 
     task = asyncio.create_task(server.serve())
-    # wait for readiness
-    for _ in range(100):
-        if server.started:
-            break
-        await asyncio.sleep(0.05)
-    assert server.started, "uvicorn did not start"
+    await _wait_started(server, task)
+    global URL
+    URL = f"http://127.0.0.1:{_bound_port(server)}/mcp"
     return server, task
 
 
@@ -282,12 +308,15 @@ async def test_reset_restores_version(server_env):
 import subprocess
 import time as _time
 
-_RESTART_PORT = 8799
+_RESTART_PORT = 0  # OS-assigned ephemeral port; no fixed port to collide with
 
 
 def _spawn_server(port, dbp):
     """Spawn a fresh *subprocess* server (uvicorn+F ol FastMCP singleton:
-    StreamableHTTPSessionManager.run() is single-shot per instance) sharing dbp."""
+    StreamableHTTPSessionManager.run() is single-shot per instance) sharing dbp.
+    `port` may be 0 (OS-assigned); in that case the subprocess writes the
+    resolved port to a file named by SER_REPORT_PORT_FILE so the parent
+    can connect on the actual ephemeral port."""
     code = (
         "import asyncio, os, sys\n"
         "sys.path.insert(0, %r)\n" % ROOT +
@@ -305,15 +334,42 @@ def _spawn_server(port, dbp):
         "    for _ in range(200):\n"
         "        if s.started: break\n"
         "        await asyncio.sleep(0.05)\n"
+        "    port_out = os.environ.get('SER_REPORT_PORT_FILE')\n"
+        "    if port_out:\n"
+        "        ports = [sock.getsockname()[1] for srv in (getattr(s, 'servers', None) or []) for sock in (getattr(srv, 'sockets', None) or [])]\n"
+        "        with open(port_out, 'w') as f: f.write(str(ports[0]))\n"
         "    await asyncio.Event().wait()\n"
         "asyncio.run(main())\n"
     )
     env = dict(os.environ)
     env["SER_DB_PATH"] = dbp
+    if port == 0:
+        import tempfile as _tf
+        fd, port_file = _tf.mkstemp(prefix="ser_port_", suffix=".txt")
+        os.close(fd)
+        os.unlink(port_file)  # the child re-creates it with its bound port
+        env["SER_REPORT_PORT_FILE"] = port_file
+    else:
+        port_file = None
     proc = subprocess.Popen(
         [sys.executable, "-X", "utf8", "-c", code],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    if port == 0:
+        deadline0 = _time.time() + 15
+        while _time.time() < deadline0:
+            if proc.poll() is not None:
+                raise RuntimeError(f"server subprocess exited early: {proc.returncode}")
+            if port_file and os.path.exists(port_file):
+                with open(port_file) as f:
+                    txt = f.read().strip()
+                if txt.isdigit() and int(txt) > 0:
+                    port = int(txt)
+                    break
+            _time.sleep(0.1)
+        else:
+            proc.kill()
+            raise RuntimeError("subprocess never reported its ephemeral port")
     import httpx
     deadline = _time.time() + 15
     while _time.time() < deadline:
@@ -329,7 +385,7 @@ def _spawn_server(port, dbp):
                 timeout=2,
             )
             if r.status_code < 500:
-                return proc
+                return proc, port
         except httpx.HTTPError:
             pass
         _time.sleep(0.2)
@@ -376,17 +432,17 @@ async def test_restart_cycle_persists_outage_and_plan(server_env):
         await cm1.__aexit__(None, None, None)
 
     # --- stop in-process server (fixture teardown comes later; the port stays
-    #     busy, so the 'restarted' server runs on its own port 8799) ---
+    #     busy, so the 'restarted' server runs on its own ephemeral port) ---
     # NOTE: true process kill isn't possible in-process here; a fresh
     # subprocess server pointing at the SAME db file on a NEW port is the
     # equivalent restart: new process, new FastMCP, same SQLite persistence.
 
-    proc = await asyncio.wait_for(
+    proc, restart_port = await asyncio.wait_for(
         asyncio.get_event_loop().run_in_executor(
             None, _spawn_server, _RESTART_PORT, dbp), timeout=20)
     try:
         cm2 = streamablehttp_client(
-            f"http://127.0.0.1:{_RESTART_PORT}/mcp",
+            f"http://127.0.0.1:{restart_port}/mcp",
             headers={"authorization": "Bearer tok-manager"})
         read2, write2, _ = await cm2.__aenter__()
         sm2 = ClientSession(read2, write2)

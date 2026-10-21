@@ -1,5 +1,10 @@
 # 凍結契約 v1（2026-10-19 23:35，Lead 發布）
 
+> **範圍之後的擴增（v2，2026-10-20）**：本契約凍結時是 6 個工具；實作階段為補完
+> 問責故事新增了 `schedule_audit_get` 與 `verify_audit_chain`（現為 8 個工具），
+> 並以 `web/app.py` 同源代理取代原規劃的 `web/agent.py` 分層，multipart 細節以
+> `contracts/tools.json` + `tests/test_contract.py` 為準。凍結的 schema 值未變。
+>
 > **這份文件是 `web/` 必須對上的介面。** 機器可讀版本：`contracts/tools.json`；
 > 完整範例回傳：`contracts/examples/`。三者由 `tests/test_contract.py` 強制一致。
 >

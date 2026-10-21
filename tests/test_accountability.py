@@ -24,10 +24,30 @@ sys.path.insert(0, ROOT)
 from mcp import ClientSession, types  # noqa: E402
 from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
 
-MCP_PORT = int(os.environ.get("SER_TEST_PORT2", "8908"))
+MCP_PORT = int(os.environ.get("SER_TEST_PORT2", "0"))  # 0 = OS-assigned ephemeral port
 URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
 TOKENS = {"manager": "tok-manager", "li": "tok-li"}
 DEMO_DATE = "2026-10-20"
+
+
+def _bound_port(server) -> int:
+    ports = [sock.getsockname()[1] for s in (getattr(server, "servers", None) or [])
+             for sock in (getattr(s, "sockets", None) or [])]
+    assert len(ports) == 1, f"expected exactly one bound port, got {ports}"
+    return ports[0]
+
+
+async def _wait_started(server, task):
+    for _ in range(100):
+        if getattr(server, "started", False):
+            return
+        if task.done():
+            exc = task.exception()
+            raise RuntimeError(
+                f"uvicorn failed to start (port conflict or app error): {exc!r}"
+            )
+        await asyncio.sleep(0.05)
+    raise RuntimeError("uvicorn did not start within 5 seconds")
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +56,7 @@ def anyio_backend():
 
 
 async def _start_server(dbp: str):
+    global URL, MCP_PORT
     os.environ["SER_DB_PATH"] = dbp
     os.environ["SER_NO_RATE_LIMIT"] = "1"
     import uvicorn
@@ -56,11 +77,9 @@ async def _start_server(dbp: str):
                             log_level="error")
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
-    for _ in range(100):
-        if server.started:
-            break
-        await asyncio.sleep(0.05)
-    assert server.started, "uvicorn did not start"
+    await _wait_started(server, task)
+    MCP_PORT = _bound_port(server)
+    URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
     return server, task
 
 
@@ -74,8 +93,6 @@ def _elicitation_handler(confirm_value):
         return types.ElicitResult(
             action="accept", content={"confirm": bool(confirm_value)}
         )
-
-    return handler
 
     return handler
 

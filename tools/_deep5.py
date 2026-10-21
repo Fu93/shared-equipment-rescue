@@ -16,7 +16,7 @@ import re
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-ROOT = r"C:\Users\nn201\OneDrive - University of Glasgow\Desktop\Amazon\shared-equipment-rescue"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 results = []
 def check(name, ok, extra=""):

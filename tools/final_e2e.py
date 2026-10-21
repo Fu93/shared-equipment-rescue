@@ -16,7 +16,7 @@ import httpx
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 
-URL = "http://127.0.0.1:8957/mcp"
+URL = "http://127.0.0.1:0/mcp"  # resolved after boot (ephemeral port)
 DAY = "2026-10-20"
 TOKENS = {"manager": "tok-manager", "chen": "tok-chen", "li": "tok-li"}
 
@@ -39,6 +39,13 @@ async def connect(token, confirm=False):
     session = await scm.__aenter__()
     await session.initialize()
     return hcm, scm, session
+
+
+def _bound_port(server) -> int:
+    ports = [sock.getsockname()[1] for s in (getattr(server, "servers", None) or [])
+             for sock in (getattr(s, "sockets", None) or [])]
+    assert len(ports) == 1, f"expected exactly one bound port, got {ports}"
+    return ports[0]
 
 
 async def call(session, name, args=None):
@@ -66,13 +73,19 @@ async def main():
     from mcp_server.server import build_app
 
     app = build_app()
-    cfg = uvicorn.Config(app, host="127.0.0.1", port=8957, log_level="error")
+    cfg = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
     srv = uvicorn.Server(cfg)
     task = asyncio.create_task(srv.serve())
     for _ in range(100):
         if srv.started:
             break
+        if task.done():
+            raise RuntimeError(f"uvicorn failed to start: {task.exception()!r}")
         await asyncio.sleep(0.05)
+    if not srv.started:
+        raise RuntimeError("uvicorn did not start within 5 seconds")
+    global URL
+    URL = f"http://127.0.0.1:{_bound_port(srv)}/mcp"
 
     ok = True
     try:

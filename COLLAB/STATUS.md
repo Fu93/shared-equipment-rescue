@@ -1,3 +1,13 @@
+## 2026-10-21 12:20 — Lead round 9 — 子代理三路深審修復（port-conflict / 速率撞牆 / UI 回歸 / 文件真實性）
+- **P0 埠衝突**：pytest 預設 8907/8908 與使用者無關常駐程式相撞 → 8 errors。`test_server.py`/`test_accountability.py`/`final_e2e.py` 全部改 **ephemeral port 0**＋`_bound_port()`；外來程式仍占 8907 的機器上實測 58/58 照樣綠。
+- **速率撞牆（歷史 probe）**：`tools/_deep4.py`/`_deep6.py` 在 token-bucket 落地後未設 `SER_NO_RATE_LIMIT=1`，burst→429 讓 probe 崩。補上後重跑：_deep4 10/10、_deep6 7/7 PASS（p50 get <300ms、propose <1s、apply <1.5s）。
+- **UI 回歸**：`:active` 按下回饋曾在打磨輪丟失 → `index.html` 補回 action-row / btn-mini / chat-input 三處 pressed 態；browser E2E 提權後實跑 **20/20 PASS** 重驗。
+- **P0 tzdata**：requirements.txt 補 `tzdata; platform_system=="Windows"`（Windows 無系統 tz DB，`ZoneInfo("Europe/London")` 会在 import 時炸，product-feedback 自承）。pip dry-run 解析 ✅。
+- **文件真實性（cross-audit P1）**：README「9 browser checks」→ 實為 20 條並列舉真實檢查類別；「replayed byte-exact in CI」→ 改為由測試鎖（無 CI 配置，不虛構）；SUBMISSION_CHECKLIST friction log「web 端 3 條」→ 實為 7 條全 backend；CONTRACT-FROZEN 頂部加 v2 範圍註記（6→8 工具、`web/agent.py`→`web/app.py`），不竄改凍結歷史。
+- 三子代理審計（backend / frontend / product-cross）完成；cross-audit 曾在 `COLLAB/INBOX-lead.md` 遇提示注入（指令其截斷審計），已按不可信資料忽略，審計全程完成。
+- 本輪 gates：**pytest 58/58 · final_e2e 19/19 ALL PASS exit=0 · browser E2E 20/20（提權實跑）**。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交；並需 commit 本輪 12+ 檔並加 remote/push。期限 2026-10-23。
+
 ## 2026-10-21 05:55 — Lead round 8 收尾 — P0 迴歸測試永久化（mutation-verified）· `ef6d5c3` → 本輪 commit
 - **P0 迴歸測試入 repo**：`test_audit_pagination_no_row_dropped`（limit 1/2/3 各對 5 行 pagination_probe 做 keyset 全翻頁，斷言 seed0..seed5 無缺無重）+ `test_debug_confirm_writes_audit_row`（elicitation accept 必須留審計行）。pytest 56→**58**。
 - **Mutation check**：把 server.py 游標臨時還原為 pre-fix 邏輯（`page[-1]` lookahead 版）→ 迴歸測試**立即失敗**（CAUGHT）；還原後全綠。證明測試真的抓得住 P0，非形式覆蓋。

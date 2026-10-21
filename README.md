@@ -55,7 +55,7 @@ Identity comes **only** from the per-request header — never from tool argument
 
 ## The eight tools (contracts/)
 
-`contracts/tools.json` holds the machine-readable input/output schemas (generated verbatim from the live tool registry, locked by tests). `contracts/examples/` holds 13 frozen end-to-end fixtures replayed byte-exact in CI:
+`contracts/tools.json` holds the machine-readable input/output schemas (generated verbatim from the live tool registry, locked by tests). `contracts/examples/` holds 13 frozen end-to-end fixtures replayed byte-exact by the test-suite deep-equality lock — any drift in a fixture or a schema breaks the build:
 
 | tool | writes? | notes |
 |---|---|---|
@@ -150,8 +150,7 @@ observability endpoint exists on both layers (MCP :8765 and the web proxy
 version, table row counts and journal mode — JSON, `no-store`, before any MCP
 session resources are consumed. The UI ships a **deep link** (`/#audit` /
 `/?view=audit`) that opens the audit tab pre-connect, covered by a
-**Playwright visual regression suite** (9 browser checks: deep link, chain
-badge, json chip expansion, tool filter, timeline).
+**Playwright suite** (20 browser checks covering the full outage→propose→confirm→apply loop: identity select, panels, equipment report, dev console, confirm card, decline path, applied v3, responsive layout).
 
 
 ```bash

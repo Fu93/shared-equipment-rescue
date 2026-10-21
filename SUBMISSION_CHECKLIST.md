@@ -15,7 +15,7 @@
 | 狀態持久化 | ✅ | SQLite＋單調 `schedule_version`＋audit `change_log` |
 | 權限 | ✅ | Header-only auth（`tok-manager/chen/wang/li`），researcher 掩碼視圖有測試鎖 |
 | Product Feedback | ✅ | `docs/product-feedback.md` |
-| Friction Log | ✅ | `docs/friction-log.md`（7 條＋web 端 3 條新增） |
+| Friction Log | ✅ | `docs/friction-log.md`（7 條） |
 | web/ MCP client | ✅ | commit `c3249ef`/`ba7e2dc`：同源 streaming 代理＋確認卡＋MCP dev log；瀏覽器 E2E 20/20 |
 | **Demo 影片 <3:00** | ⬜ 未拍 | 腳本見下（錄影即用 web UI，下列流程逐幕對應 `_shot_1..6.png`） |
 | **Devpost 提交** | ⬜ 未填 | 主賽道 Alexa+；AWS Builder 勾選 |
