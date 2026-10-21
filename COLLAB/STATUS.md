@@ -1,3 +1,13 @@
+## 2026-10-21 12:35 — Lead round 9b — 身分命名對齊伺服器・web burst 對齊・平手規則回歸鎖（pytest 58→60）
+- **命名真實性（cross-audit P2）**：UI 寫「Priya (Manager)」，伺服器與凍結契約 fixture 寫「Facility Manager」。契約端不可動 → 改 UI 端：identity select、roleBadge、chat 錯誤訊息、`web/src/mcp-client.mjs` 的 DEMO_TOKENS、browser_e2e 斷言、OUTBOX 錨點清單全部改為 `Facility Manager`。
+- **bundle 新鮮度雙重驗證**：以 esbuild 重建 `web/static/mcp-client.bundle.js`；子代理獨立重建的 SHA-256 **與提交版完全相同**（`F18166A6…`）→ 提交物非陳舊產物。
+- **web rate limit 對齊**：`web/app.py` proxy token bucket burst 8→**16**，與 MCP 層及文件「兩層皆 ~4 req/s, burst 16」一致。
+- **引擎平手規則回歸化（真缺口）**：choice key `(earliest_start, original-equipment-first)` 一直只寫在 engine.py 文件裡、**沒有任何測試鎖定**。新增 `test_true_tie_keeps_original_equipment` 與 `test_earlier_alternative_beats_later_original`（engine 10→12，全套 58→**60**）。**Mutation 驗證**：反轉裝置搜尋順序 → 兩條新測試立刻 **2 failed**；還原 → 全綠。（`is_original` 子句在「原設備先搜尋」下屬冗餘，保留作未來防護。）
+- **後端審計殘餘 FAIL 判定**：子代理指出的 earliest-vs-original / true-tie 兩個場景由 lead 獨立重建驗證（臨時探針 `tools/_audit_fe_scenarios.py`，已刪）→ 引擎行為完全符合自身文件契約，**屬場景構造錯誤，非產品 bug**。
+- `test_contract.py`：`test_all_six_tools_present` → `test_all_eight_tools_present`（一直斷言的是 8 工具集）。
+- 本輪 gates：**pytest 60/60 · final_e2e 19/19 ALL PASS exit=0 · browser E2E 20/20（提權實跑）**；commit `987d716`。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交、**加 git remote 並 push**（目前無 remote，評審無法 clone）。期限 2026-10-23。
+
 ## 2026-10-21 12:20 — Lead round 9 — 子代理三路深審修復（port-conflict / 速率撞牆 / UI 回歸 / 文件真實性）
 - **P0 埠衝突**：pytest 預設 8907/8908 與使用者無關常駐程式相撞 → 8 errors。`test_server.py`/`test_accountability.py`/`final_e2e.py` 全部改 **ephemeral port 0**＋`_bound_port()`；外來程式仍占 8907 的機器上實測 58/58 照樣綠。
 - **速率撞牆（歷史 probe）**：`tools/_deep4.py`/`_deep6.py` 在 token-bucket 落地後未設 `SER_NO_RATE_LIMIT=1`，burst→429 讓 probe 崩。補上後重跑：_deep4 10/10、_deep6 7/7 PASS（p50 get <300ms、propose <1s、apply <1.5s）。
