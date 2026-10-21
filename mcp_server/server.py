@@ -242,6 +242,14 @@ def _session_aux_request(scope) -> bool:
     return method == "POST" and path in ("/agent/step", "/agent/result")
 
 
+def _is_loopback(host: str) -> bool:
+    try:
+        import ipaddress
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
 def _client_key(scope) -> str:
     """Rate-limit bucket key for one request.
 
@@ -254,6 +262,18 @@ def _client_key(scope) -> str:
     """
     peer = scope.get("client")
     peer_host = peer[0] if peer else "unknown"
+    # Hosted demo: the web proxy and this server share one box, so every
+    # browser arrives from loopback and would share ONE bucket. With
+    # SER_TRUST_PROXY_CLIENT_IP=1 the proxy's own x-ser-client-ip header (it
+    # always overwrites any client-sent value) is the key, but only when the
+    # raw socket peer is loopback. Unset keeps the raw peer, as before.
+    if os.environ.get("SER_TRUST_PROXY_CLIENT_IP") == "1" and _is_loopback(peer_host):
+        for k, v in scope.get("headers", []):
+            if k == b"x-ser-client-ip":
+                value = v.decode("latin-1").strip()
+                if value and len(value) <= 64:
+                    return "fwd:" + value
+                break
     # X-Forwarded-For is accepted as the bucket key ONLY from the demo web
     # proxy (loopback peer that also carries our proxy marker). Any other
     # caller — even on loopback — is keyed by its raw socket address, so a
