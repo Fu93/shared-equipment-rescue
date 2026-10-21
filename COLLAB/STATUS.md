@@ -1,4 +1,10 @@
-## 2026-10-21 04:15 — Lead 產品級 sweep round 5 完結 — commit `a2f3b75`，三重閘門 56 / 19 ALL PASS / 20/20 全綠
+## 2026-10-21 04:15 — Lead 產品級 sweep round 5 完結 — commit `a2f3b75` → `ef6d5c3`（後端深審收尾），三重閘門 56 / 19 ALL PASS / 20/20 全綠
+- **後端深審修**（第三子代理報告 + lead 複驗，commit `ef6d5c3`）：
+  - **P0 修（重現後修正）**：schedule_audit_get 每頁邊界掉一列（游標點在未截斷的 page[-1]，下一頁 id < cursor 時該列永不顯示）。改為 keyset 語義：cursor = 回傳列的最後一列 id、頁面截斷到 limit；5 行 seed limit=2 全翻頁 probe **無缺無重 PASS**。
+  - **P1 修**：PUBLIC_TOOLS 去重 → `constants.PUBLIC_AUDIT_TOOLS`（db.audit_entries SQL 邊界與 server Python 過濾共用單一來源）。
+  - **P1 修**：debug_confirm 補審計行（elicitation accept/decline 與 not_supported 都入 trail）。
+  - **P2 修**：token_hint 改取 token 後綴（demo tok- 前綴無鑑別度；現在顯示 manager…/chen…）；web `/` 與 `/metrics` 納入 Origin/Host guard（防 DNS-rebinding 讀鏈頭）；transport ledger 的進程鎖理由已註解說明。
+  - 其餘類別（SQL 注入參數化、invalid_argument 錯誤形、schema 同步、連接 finally 收尾、ISO 時間戳、actor 防偽、reset 覆蓋）三代理與 lead 探針一致判定 CLEAN。
 - **P0 修**：requirements.txt 補 `fastapi>=0.110` + `httpx>=0.26`（web/app.py 必需依賴缺失，fresh clone 的 README quickstart 第 2 行會 ModuleNotFoundError）。
 - **P1 修**：tools/final_e2e.py 補 `SER_NO_RATE_LIMIT=1`（新 token bucket 令預設跑法在 A5 吃 429 flake，重現兩次；修後無環境變數裸跑 exit=0）。
 - **P1 修**（docs truth-sync）：51→**56 passed**（test_accountability.py 5 條入冊 + test_server 實為 8 非 18）、工具 6→**8**（schedule_audit_get + verify_audit_chain 多列表格）、SUBMISSION_CHECKLIST 同步。
