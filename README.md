@@ -1,4 +1,4 @@
-# Shared Equipment Rescue
+﻿# Shared Equipment Rescue
 
 **A facility manager's AI copilot for shared-instrument outage recovery — a self-hosted MCP 2025-11-25 server that detects every booking an outage breaks, proposes a rule-checked replan, and never writes a single change without explicit human confirmation (MCP elicitation, human-in-the-loop).**
 
@@ -12,6 +12,45 @@ When a confocal microscope (or any shared instrument) goes down mid-day, a manag
 2. **Propose** a replan → greedy scheduler searches 15-minute increments, FIFO by deadline, enforcing operating hours, per-user equipment permissions, personal calendars, hard deadlines, and a 15-minute post-session buffer — changes carry machine-readable reason codes; impossible items return **per-equipment `earliest_possible` diagnostics** (`available_only_after`, `available_after_deadline` + `deadline_would_need at_least "12:15"`, `no_permission` blockers), never a bare failure.
 3. **Apply** → the tool calls `ctx.elicit()` and **refuses to mutate** until a human confirms in the client UI. Decline / cancel / unsupported client → `not_confirmed`, zero side effects, plan stays `proposed`.
 4. **Idempotency everywhere**: `plan_id` = `(outage_id, based_on_version)`, monotonic `schedule_version`, stale proposals rejected (`plan_stale`), re-apply → `already_applied`.
+
+## The demo, frame by frame
+
+The six frames below are the actual demo (regenerated from this build by
+`tools/shoot_screenshots.py`; `tests/test_screenshots_current.py` fails if
+they ever drift from what the code renders).
+
+**1 — the board, straight after `initialize`** — six bookings across two
+confocals, and the right-hand panel showing the real MCP traffic
+(`tools/call` → `ok`, protocol `2025-11-25`, identity taken from the header):
+
+![initial board](docs/screenshots/_shot_1_initial.png)
+
+**2 — one tool call, the outage is recorded** — the version badge jumps to
+`v2`, the outage banner appears and B2/B4 are marked `blocked`:
+
+![outage recorded](docs/screenshots/_shot_2_outage.png)
+
+**3 — the proposal** — Chen moves to Confocal B 11:15–12:15, Wang to
+Confocal A 16:00–17:00, each with a machine-readable reason
+(`switched equipment (CONFOCAL A → CONFOCAL B)`, `still meets deadline`):
+
+![proposal](docs/screenshots/_shot_3_proposed.png)
+
+**4 — the human-in-the-loop gate** — the server sends a real MCP
+`elicitation/create`; the confirmation card is answered by a click and
+nothing else. No spinner on top of the decision:
+
+![confirm card](docs/screenshots/_shot_4_elicit.png)
+
+**5 — applied, `v3`** — the audit row records who confirmed and when
+(London time):
+
+![applied](docs/screenshots/_shot_5_applied.png)
+
+**6 — the same board as a researcher** — Wang sees his own new 16:00 slot
+while everyone else's booking is masked as `Occupied`:
+
+![researcher view](docs/screenshots/_shot_6_wang_after.png)
 
 ## Quick start
 
@@ -154,7 +193,7 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 67 passed
+python -X utf8 -m pytest tests/ -q      # 68 passed
 ```
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
@@ -164,24 +203,28 @@ python -X utf8 -m pytest tests/ -q      # 67 passed
 - `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
 - `test_accountability.py` (7): real-client audit-trail checks — researcher public-visibility SQL boundary, concurrent double-apply applies exactly once (TOCTOU), 403 origin/host rejections land in the hash-chained transport ledger, the ledger survives `reset_demo_data`, a replayed apply leaves an audit row with the chain verifying green, audit pagination drops no row at any page boundary (limit 1/2/3 walks over 5 seeded rows), and `debug_confirm` elicitation outcomes are audited.
 - `test_web_proxy.py` (6): the `web/` layer — loopback `Origin`/`Host` accepted on any port, foreign hosts/origins still 403, a real MCP client relayed through the proxy sees all 8 tools and a working `schedule_get`, `/metrics` aggregates both layers, and a dead upstream returns 502 with a restart hint.
-- `test_video_walk.py` (1, 27 scene checks): drives the real UI through **the demo video script beat by beat** — the six bookings and two confocals, the version bump to v2 with the outage banner, both proposed moves with machine-readable reasons, the confirm card naming the human-in-the-loop rule, Cancel leaving the version untouched, Confirm reaching v3, the identity switch masking other people's slots as "Occupied", and the audit tab with zone-labelled timestamps — so the recording cannot show something the narration does not claim. Needs Playwright; skips cleanly where no browser can launch.
+- `test_video_walk.py` (1, 29 scene checks): drives the real UI through **the demo video script beat by beat** — the six bookings and two confocals, the version bump to v2 with the outage banner, both proposed moves with machine-readable reasons, the confirm card naming the human-in-the-loop rule, Cancel leaving the version untouched, Confirm reaching v3, the identity switch masking other people's slots as "Occupied", and the audit tab with zone-labelled timestamps — so the recording cannot show something the narration does not claim. Needs Playwright; skips cleanly where no browser can launch.
+- `test_screenshots_current.py` (1): the committed screenshots in `docs/screenshots/` must still show what the build renders today — it re-renders the same scenes and compares the recorded text, so the images in the README cannot silently go stale. Needs Playwright; skips cleanly where no browser can launch.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 
 ## Demo screenshots
 
 ```bash
-python -X utf8 tools/shoot_screenshots.py   # writes web/_shot_1..6.png
+python -X utf8 tools/shoot_screenshots.py
 ```
 
 Regenerates the six demo screenshots from the current build, one per beat of
 the video script (initial board, outage, proposal, confirm card, applied, and
 the identity switch). It boots its own servers on ephemeral ports, so it never
-disturbs a running demo. The images are gitignored — they are recording
-material, not source.
+disturbs a running demo.
 
-`tests/test_video_walk.py` asserts the same beats against the live UI, so a
-screenshot can never show something the narration does not claim.
+It writes two copies: `docs/screenshots/` (version-controlled — what the README
+shows and what a judge sees) and `web/` (the live capture, gitignored — your
+recording scratch). Alongside the images it writes `docs/screenshots/manifest.json`,
+the text each frame displayed; `tests/test_screenshots_current.py` re-renders
+the same scenes and compares the text, so a committed screenshot can never
+silently go stale.
 
 ## Development docs
 

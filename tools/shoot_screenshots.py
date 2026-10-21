@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Regenerate the demo screenshots (_shot_1..6.png) from the CURRENT build.
 
 The old screenshots were captured on 2026-10-20 and showed a UI that no
@@ -22,6 +22,7 @@ The servers run on ephemeral ports so this never fights a running demo,
 and they are always stopped again.
 """
 import asyncio
+import json
 import os
 import socket
 import subprocess
@@ -31,7 +32,11 @@ import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHOTS = os.path.join(ROOT, "web")
+# Two destinations:
+#   docs/screenshots/  - the curated, version-controlled copies a judge sees
+#   web/               - the live capture output (recording scratch, ignored)
+SHOTS = os.path.join(ROOT, "docs", "screenshots")
+SCRATCH = os.path.join(ROOT, "web")
 VIEWPORT = {"width": 1500, "height": 900}
 
 
@@ -95,23 +100,48 @@ async def main() -> int:
             await page.wait_for_timeout(3500)
 
             async def shot(name: str) -> None:
-                path = os.path.join(SHOTS, name)
-                await page.screenshot(path=path)
+                # Write the curated copy (version-controlled) and the live
+                # scratch copy (recording material) side by side.
+                for folder in (SHOTS, SCRATCH):
+                    os.makedirs(folder, exist_ok=True)
+                    await page.screenshot(path=os.path.join(folder, name))
                 taken.append(name)
-                print("  captured", name)
+                print(f"  captured {name}")
+
+            async def facts() -> dict:
+                """The facts this frame shows, as text.
+
+                Recorded next to the image so the staleness test can compare
+                them with a fresh render. Comparing images is unreliable (a
+                PNG is compressed and a re-capture is never bit-identical);
+                comparing text is exact.
+                """
+                panel = await page.locator(".schedule-panel").inner_text()
+                chat = await page.locator(".chat-panel").inner_text()
+                return {
+                    "panel": panel,
+                    "chat": chat,
+                    "verBadge": (await page.text_content("#verBadge") or "").strip(),
+                    "roleBadge": (await page.text_content("#roleBadge") or "").strip(),
+                }
 
             print("capturing...")
+            frames = {}
+
             # 1 - the initial board
             await shot("_shot_1_initial.png")
+            frames["_shot_1_initial.png"] = await facts()
 
             # 2 - the outage, board at v2 with B2/B4 blocked
             await page.evaluate("window.reportOutageFlow()")
             await page.wait_for_timeout(3500)
             await shot("_shot_2_outage.png")
+            frames["_shot_2_outage.png"] = await facts()
 
             # 3 - the proposal
             await page.wait_for_timeout(1500)
             await shot("_shot_3_proposed.png")
+            frames["_shot_3_proposed.png"] = await facts()
 
             # 4 - the elicitation confirm card
             apply_btn = page.locator("button.green").first
@@ -119,17 +149,27 @@ async def main() -> int:
                 await apply_btn.click()
             await page.wait_for_timeout(3000)
             await shot("_shot_4_elicit.png")
+            frames["_shot_4_elicit.png"] = await facts()
 
             # 5 - applied, v3
             if await page.locator("#confirmYes").count():
                 await page.evaluate("document.getElementById('confirmYes').click()")
             await page.wait_for_timeout(3500)
             await shot("_shot_5_applied.png")
+            frames["_shot_5_applied.png"] = await facts()
 
             # 6 - acting as Wang: his own new slot, everyone else masked
             await page.select_option("#userSelect", "tok-wang")
             await page.wait_for_timeout(3500)
             await shot("_shot_6_wang_after.png")
+            frames["_shot_6_wang_after.png"] = await facts()
+
+            # The manifest travels with the images: it is what the staleness
+            # test compares, because text compares exactly and images do not.
+            manifest = os.path.join(SHOTS, "manifest.json")
+            with open(manifest, "w", encoding="utf-8") as f:
+                json.dump(frames, f, ensure_ascii=False, indent=1, sort_keys=True)
+            print("  wrote", manifest)
 
             await b.close()
     finally:

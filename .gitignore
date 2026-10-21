@@ -3,4 +3,8 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
-_shot_*.png
+# The live capture output lives in web/ (recording scratch, not source).
+# The curated, version-controlled copies live in docs/screenshots/ and are
+# regenerated with: python -X utf8 tools/shoot_screenshots.py
+web/_shot_*.png
+web/_responsive_*.png
