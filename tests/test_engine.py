@@ -14,6 +14,7 @@ from mcp_server.engine import (  # noqa: E402
     Equipment,
     Outage,
     World,
+    _choose_slot,
     compute_plan,
 )
 from mcp_server import constants as C  # noqa: E402
@@ -295,3 +296,55 @@ def test_deadline_inclusive_bounding():
     assert a_ep.status == "available_after_deadline"
     assert a_ep.earliest_start == T("10:30") and a_ep.earliest_finish == T("11:30")
     assert ("deadline_would_need", T("11:30")) in [(r.code, r.at_least) for r in a_ep.would_work_if]
+
+
+# --- tie-break: (earliest_start, original-equipment-first) --------------------
+
+
+def _open_world():
+    """Seed world with every seeded booking removed, so both scopes are free."""
+    w = build_world()
+    w.bookings = []
+    return w
+
+
+def test_true_tie_keeps_original_equipment():
+    """Both scopes free from 13:00 -> the booking stays on its ORIGINAL scope.
+
+    Locks the documented choice key (engine.py: 'earliest_start, then
+    original-equipment-first'). Without this, a refactor that sorted only by
+    start time could silently shuffle every booking onto the other scope.
+    """
+    w = _open_world()
+    target = Booking(
+        id="TX", user_id="user-chen", equipment_id="confocal-a",
+        start=T("13:00"), end=T("14:00"), deadline=None,
+        movable=True, status="confirmed",
+    )
+    eid, start, end = _choose_slot(w, list(w.bookings), target, None)
+    assert eid == "confocal-a"
+    assert start == parse_dt(T("13:00")) and end == parse_dt(T("14:00"))
+
+
+def test_earlier_alternative_beats_later_original():
+    """A slot that starts earlier wins even when it is NOT the original scope.
+
+    Counterpart to the tie test: the original scope only breaks exact ties,
+    it never outranks a strictly earlier start.
+    """
+    w = _open_world()
+    # A is occupied 13:00-14:00 by another user -> A's earliest is 14:15
+    # (buffer 15m). B is free from 13:00.
+    w.bookings.append(Booking(
+        id="BLOCK", user_id="user-li", equipment_id="confocal-a",
+        start=T("13:00"), end=T("14:00"), deadline=None,
+        movable=False, status="confirmed",
+    ))
+    target = Booking(
+        id="TY", user_id="user-chen", equipment_id="confocal-a",
+        start=T("13:00"), end=T("14:00"), deadline=None,
+        movable=True, status="confirmed",
+    )
+    eid, start, _end = _choose_slot(w, list(w.bookings), target, None)
+    assert eid == "confocal-b"
+    assert start == parse_dt(T("13:00"))

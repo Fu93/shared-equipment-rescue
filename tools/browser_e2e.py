@@ -92,7 +92,7 @@ async def main():
         ver = await page.text_content("#verBadge")
         check(ver and ver.strip().startswith("v"), f"verBadge {ver!r}")
         ident = await page.text_content("#roleBadge")
-        check(ident and ("Priya" in ident or "Manager" in ident or "manager" in ident.lower()), f"identity {ident!r}")
+        check(ident and ("Facility Manager" in ident or "manager" in ident.lower()), f"identity {ident!r}")
 
         # 3 two-column schedule panel + chat panel exist
         cols = (await page.locator(".schedule-panel").count()) + (await page.locator(".chat-panel").count())

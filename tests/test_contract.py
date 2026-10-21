@@ -110,7 +110,7 @@ async def test_protocol_version_is_2025_11_25():
 
 
 @pytest.mark.asyncio
-async def test_all_six_tools_present():
+async def test_all_eight_tools_present():
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
     assert names == {

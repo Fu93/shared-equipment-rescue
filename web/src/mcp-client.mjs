@@ -8,10 +8,10 @@ const MCP_URL = new URL('/mcp', (typeof window !== 'undefined' && window.locatio
   : 'http://127.0.0.1:8080');
 
 export const DEMO_TOKENS = [
-  { token: 'tok-manager', name: 'Priya (Manager)', role: 'manager' },
-  { token: 'tok-chen', name: 'Dr. Chen (Researcher A+B)', role: 'researcher' },
-  { token: 'tok-wang', name: 'Dr. Wang (Researcher A)', role: 'researcher' },
-  { token: 'tok-li', name: 'Dr. Li (Researcher B)', role: 'researcher' },
+  { token: 'tok-manager', name: 'Facility Manager', role: 'manager' },
+  { token: 'tok-chen', name: 'Chen (Researcher A+B)', role: 'researcher' },
+  { token: 'tok-wang', name: 'Wang (Researcher A)', role: 'researcher' },
+  { token: 'tok-li', name: 'Li (Researcher B)', role: 'researcher' },
 ];
 
 export async function createSession(token, { onElicit, onLog } = {}) {

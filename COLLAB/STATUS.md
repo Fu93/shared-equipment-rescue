@@ -82,7 +82,7 @@
 - 順帶確認 root _shot 截圖不殘留（E2E 由 repo root 跑時會落 root，已清）。
 
 ## 2026-10-20 12:40 — Lead（巡檢 round 3 · 身分隔离）
-- 並發身分隔离探測：同時兩個 bearer session（tok-manager / tok-chen）各自 schedule_get → viewer 逐一正確（Priya / Chen）、訂位數一致、無 cross-session 洩漏。identity 純由 header token 決定 ✅。
+- 並發身分隔离探測：同時兩個 bearer session（tok-manager / tok-chen）各自 schedule_get → viewer 逐一正確（Facility Manager / Chen）、訂位數一致、無 cross-session 洩漏。identity 純由 header token 決定 ✅。
 - 暫存探針已清（web/_soak.py、web/_ident_probe.py）。工作樹乾淨。
 - Partner 自 10:54 backup 後零動作（INBOX 416B 不變）。
 

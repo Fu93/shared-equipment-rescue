@@ -84,7 +84,7 @@ ALLOWED_HOSTS = {
     "127.0.0.1:8080", "localhost:8080", "127.0.0.1", "localhost",
 }
 
-# Per-IP token bucket, same budget as the MCP server guard: ~4 req/s, burst 8.
+# Per-IP token bucket, same budget as the MCP server guard: ~4 req/s, burst 16.
 # A normal browser session (poll + calls) stays under 1 req/s sustained.
 import time as _time
 
@@ -119,7 +119,7 @@ class _TokenBucket:
             self.updated.pop(k, None)
 
 
-_rate_limiter = _TokenBucket(rate_per_sec=4.0, burst=8)
+_rate_limiter = _TokenBucket(rate_per_sec=4.0, burst=16)
 
 
 def validate_transport_headers(request: Request) -> Optional[str]:
