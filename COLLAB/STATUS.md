@@ -1,3 +1,11 @@
+## 2026-10-21 05:55 — Lead round 8 收尾 — P0 迴歸測試永久化（mutation-verified）· `ef6d5c3` → 本輪 commit
+- **P0 迴歸測試入 repo**：`test_audit_pagination_no_row_dropped`（limit 1/2/3 各對 5 行 pagination_probe 做 keyset 全翻頁，斷言 seed0..seed5 無缺無重）+ `test_debug_confirm_writes_audit_row`（elicitation accept 必須留審計行）。pytest 56→**58**。
+- **Mutation check**：把 server.py 游標臨時還原為 pre-fix 邏輯（`page[-1]` lookahead 版）→ 迴歸測試**立即失敗**（CAUGHT）；還原後全綠。證明測試真的抓得住 P0，非形式覆蓋。
+- 順手清理：migration probe 遺留 `_responsive_*.png` 再現即刪（不入 git）。
+- gates on final tree: **pytest 58/58 · CLI E2E 19/19 ALL PASS exit=0 · browser E2E 20/20**；stray 伺服器已清。
+- docs 同步：README quickstart 56→58 passed、test_accountability 條目 5→7 並修平 "exactly exactly once" 拼字重複、SUBMISSION_CHECKLIST 兩處 56→58。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交。期限 2026-10-23。
+
 ## 2026-10-21 04:15 — Lead 產品級 sweep round 5 完結 — commit `a2f3b75` → `ef6d5c3`（後端深審收尾），三重閘門 56 / 19 ALL PASS / 20/20 全綠
 - **後端深審修**（第三子代理報告 + lead 複驗，commit `ef6d5c3`）：
   - **P0 修（重現後修正）**：schedule_audit_get 每頁邊界掉一列（游標點在未截斷的 page[-1]，下一頁 id < cursor 時該列永不顯示）。改為 keyset 語義：cursor = 回傳列的最後一列 id、頁面截斷到 limit；5 行 seed limit=2 全翻頁 probe **無缺無重 PASS**。

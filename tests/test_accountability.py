@@ -291,6 +291,76 @@ async def test_transport_ledger_survives_reset(server_env):
 
 
 @pytest.mark.anyio
+async def test_audit_pagination_no_row_dropped(server_env):
+    """P0 regression: paging limit=N over M rows must display EVERY visible
+    row exactly once — no silent drop at any page boundary.
+
+    Pre-fix behavior: the cursor pointed at page[-1] of the un-truncated
+    (+1 lookahead) fetch, so that row was never displayed; paging limit=2
+    over 5 rows returned only 4. The fix walks strictly below the last
+    DISPLAYED row (keyset semantics).
+    """
+    m, hm, hmS = await _open_session("manager", confirm=True)
+    try:
+        rs = await m.structured("reset_demo_data")
+        assert rs["status"] == "reset"
+
+        # Seed 5 static rows under a dedicated tool name, then page with
+        # tool_filter so the walks are comparable across limits — otherwise
+        # each schedule_audit_get call writes its own audit row mid-walk and
+        # the newest-first set shifts under our feet.
+        from mcp_server.db import record_audit_standalone
+        for i in range(5):
+            record_audit_standalone(
+                tool="pagination_probe", result="ok",
+                actor_id="user-manager", detail=f"seed{i}",
+            )
+
+        for limit in (1, 2, 3):
+            collected = []
+            cursor = None
+            for _ in range(50):  # runaway guard
+                args = {"limit": limit, "tool_filter": "pagination_probe"}
+                if cursor is not None:
+                    args["before_id"] = cursor
+                page = await m.structured("schedule_audit_get", args)
+                assert page["status"] == "ok", page
+                collected.extend(
+                    e["detail"] for e in page["entries"])
+                if page["next_before_id"] is None:
+                    break
+                cursor = page["next_before_id"]
+            else:
+                pytest.fail("runaway pagination")
+            assert sorted(collected) == [f"seed{i}" for i in range(5)], (
+                f"limit={limit}: row dropped or duplicated: {collected}")
+    finally:
+        await hmS.__aexit__(None, None, None)
+        await hm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_debug_confirm_writes_audit_row(server_env):
+    """debug_confirm elicitation outcomes are audited like every other tool."""
+    m, hm, hmS = await _open_session("manager", confirm=True)
+    try:
+        rs = await m.structured("reset_demo_data")
+        assert rs["status"] == "reset"
+        dc = await m.structured("debug_confirm")
+        assert dc["elicited"] is True and dc["action"] == "accept", dc
+
+        audit = await m.structured("schedule_audit_get", {"limit": 10})
+        assert audit["status"] == "ok"
+        rows = [(e["tool"], e["result"]) for e in audit["entries"]]
+        assert ("debug_confirm", "accept") in rows, rows[:5]
+        # its own reset row is the newest entry (reset wipe happens first)
+        assert rows[0][0] in ("debug_confirm", "reset_demo_data"), rows[:3]
+    finally:
+        await hmS.__aexit__(None, None, None)
+        await hm.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
 async def test_applied_replay_audited_chain_green(server_env):
     """already_applied replay leaves an audit row; chain verifies green."""
     m, hm, hmS = await _open_session("manager", confirm=True)

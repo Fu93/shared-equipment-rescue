@@ -1635,12 +1635,12 @@ async def schedule_audit_get(
         return is_manager or r["actor_id"] == p.user_id or r["tool"] in PUBLIC_TOOLS
 
     page = [r for r in rows if visible(r)]
-    # keyset pagination: entries beyond the requested limit belong to the next
-    # page. Cursor must be the last row actually RETURNED by the fetch
-    # (rows[-1]) — computed from the un-truncated fetch — while the visible
-    # page is cut to `limit`. Pointing the cursor at page[-1] instead (the
-    # pre-fix behavior) skipped that row on the next page because the next
-    # query is strictly id < cursor.
+    # Keyset pagination, newest-first: the cursor for the next page must be
+    # the last row actually DISPLAYED (page[limit-1]); the next query walks
+    # strictly below it (id < cursor). The pre-fix behavior pointed the
+    # cursor at page[-1] of the un-truncated fetch — the +1 lookahead row —
+    # which page[:limit] then never displayed, silently dropping one visible
+    # row at every page boundary.
     has_more = len(page) > limit
     next_before_id = page[limit - 1]["id"] if (has_more and limit >= 1) else None
     page = page[:limit]
