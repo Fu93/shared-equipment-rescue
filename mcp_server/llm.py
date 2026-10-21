@@ -27,6 +27,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -143,6 +145,9 @@ def set_client_factory(factory: Optional[Callable[[], Any]]) -> None:
 _cached_client: Any = None
 _cached_region: str = ""
 CONVERSE_TIMEOUT_SECONDS = 20
+_abandoned_lock = threading.Lock()
+_abandoned_calls: set[str] = set()
+_voice_demo_client: Any = None
 
 
 def disable_ec2_metadata_for_bearer() -> None:
@@ -184,16 +189,133 @@ def _make_client():
     global _cached_client, _cached_region
     if _client_factory is not None:
         return _client_factory()
+    if (os.environ.get("SER_BEDROCK_STUB") or "").strip() == "voice":
+        return _voice_demo()
     disable_ec2_metadata_for_bearer()
     region = bedrock_region()
     if _cached_client is not None and _cached_region == region:
         return _cached_client
     import boto3
+    from botocore.config import Config
     # region_name is explicit. The bearer token stays in the environment:
     # boto3's bedrock-runtime client reads AWS_BEARER_TOKEN_BEDROCK itself.
-    _cached_client = boto3.client("bedrock-runtime", region_name=region)
+    _cached_client = boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        config=Config(
+            connect_timeout=5,
+            read_timeout=20,
+            retries={"mode": "standard", "max_attempts": 2},
+        ),
+    )
     _cached_region = region
     return _cached_client
+
+
+def _voice_demo():
+    """Zero-latency tool script for tests. Never calls AWS."""
+    global _voice_demo_client
+    if _voice_demo_client is None:
+        _voice_demo_client = _VoiceDemoClient()
+    return _voice_demo_client
+
+
+def _tool_response(name: str, arguments: dict, tool_use_id: str) -> dict:
+    return {
+        "output": {"message": {"content": [{
+            "toolUse": {
+                "toolUseId": tool_use_id,
+                "name": name,
+                "input": arguments,
+            }
+        }]}},
+        "ResponseMetadata": {"RequestId": "req-voice-stub"},
+    }
+
+
+def _tool_result_texts(messages) -> List[str]:
+    texts: List[str] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        for block in msg.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            result = block.get("toolResult")
+            if not isinstance(result, dict):
+                continue
+            for part in result.get("content") or []:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    texts.append(part["text"])
+    return texts
+
+
+def _assistant_called(messages, name: str) -> bool:
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        for block in msg.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            use = block.get("toolUse")
+            if isinstance(use, dict) and use.get("name") == name:
+                return True
+    return False
+
+
+def _json_obj(text: str) -> dict:
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _json_str(text: str, key: str) -> str:
+    value = _json_obj(text).get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _json_int(text: str, key: str) -> int:
+    value = _json_obj(text).get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value
+
+
+class _VoiceDemoClient:
+    """One demo turn: report the outage, propose, then apply for Confirm."""
+
+    def converse(self, **kwargs):
+        messages = kwargs.get("messages") or []
+        results = _tool_result_texts(messages)
+        if not results:
+            return _tool_response("equipment_report_outage", {
+                "equipment_id": "confocal-a",
+                "start": "2026-10-20T10:00:00+01:00",
+                "end": "2026-10-20T16:00:00+01:00",
+                "reason": "Reported via the voice stub",
+            }, "voice-1")
+        if not _assistant_called(messages, "schedule_propose_replan"):
+            version = _json_int(results[-1], "schedule_version") or 2
+            outage_id = _json_str(results[-1], "outage_id") or "O1"
+            return _tool_response("schedule_propose_replan", {
+                "outage_id": outage_id,
+                "schedule_version": version,
+            }, "voice-2")
+        if not _assistant_called(messages, "schedule_apply_replan"):
+            version = _json_int(results[-1], "schedule_version") or 2
+            plan_id = _json_str(results[-1], "plan_id") or "P1"
+            return _tool_response("schedule_apply_replan", {
+                "plan_id": plan_id,
+                "schedule_version": version,
+            }, "voice-3")
+        return {
+            "output": {"message": {"content": [{
+                "text": "The plan is ready for you to confirm.",
+            }]}},
+            "ResponseMetadata": {"RequestId": "req-voice-stub"},
+        }
 
 
 def _failure_details(exc: BaseException) -> tuple[str, str, str]:
@@ -213,8 +335,17 @@ def _failure_details(exc: BaseException) -> tuple[str, str, str]:
         if meta.get("RequestId"):
             request_id = str(meta["RequestId"])
     lowered = str(exc).lower()
+    network_names = {
+        "EndpointConnectionError",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+        "ConnectionClosedError",
+        "ProxyConnectionError",
+    }
     if code == type(exc).__name__:
-        if "throttl" in lowered or "too many requests" in lowered:
+        if code in network_names or code.endswith("ConnectionError"):
+            code = "NetworkError"
+        elif "throttl" in lowered or "too many requests" in lowered:
             code = "ThrottlingException"
         elif "validation" in lowered:
             code = "ValidationException"
@@ -364,19 +495,42 @@ def _bedrock_converse(messages: List[Dict[str, Any]]) -> Optional[str]:
         return None
 
 
-def timeout_fallback(latency_ms: int = 0) -> dict:
-    """Payload when the Converse wait expires before a response arrives."""
+def abandon_converse(call_id: str, latency_ms: int = 0) -> None:
+    """Mark one Converse call abandoned and record Timeout.
+
+    A late success on that call must not write an ok row afterwards. The
+    flag and the Timeout row are taken under the same lock.
+    """
     global _last_error
     short = "Bedrock took too long."
     _last_error = short
-    _audit_bedrock(
-        result="error",
-        model=bedrock_model_id(),
-        region=bedrock_region(),
-        request_id="",
-        latency_ms=max(0, int(latency_ms)),
-        error="Timeout",
-    )
+    with _abandoned_lock:
+        if call_id:
+            _abandoned_calls.add(call_id)
+            while len(_abandoned_calls) > 200:
+                _abandoned_calls.pop()
+        _audit_bedrock(
+            result="error",
+            model=bedrock_model_id(),
+            region=bedrock_region(),
+            request_id="",
+            latency_ms=max(0, int(latency_ms)),
+            error="Timeout",
+        )
+
+
+def _audit_unless_abandoned(call_id: str, **kwargs) -> bool:
+    """Write the audit row unless this call was already abandoned."""
+    with _abandoned_lock:
+        if call_id and call_id in _abandoned_calls:
+            return False
+        _audit_bedrock(**kwargs)
+        return True
+
+
+def timeout_fallback(latency_ms: int = 0, call_id: str = "") -> dict:
+    """Payload when the Converse wait expires before a response arrives."""
+    abandon_converse(call_id, latency_ms=latency_ms)
     return {
         "bedrock": True,
         "fallback": True,
@@ -384,13 +538,17 @@ def timeout_fallback(latency_ms: int = 0) -> dict:
         "reason": "model_error",
         "error_code": "Timeout",
         "label": "Fallback: pattern parser (Bedrock error: Timeout)",
-        "message": short,
+        "message": "Bedrock took too long.",
         "text": "",
         "calls": [],
     }
 
 
-def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) -> Dict[str, Any]:
+def agent_converse(
+    messages: List[Dict[str, Any]],
+    tool_config: Dict[str, Any],
+    call_id: str = "",
+) -> Dict[str, Any]:
     """One tool-using Converse call. Does not consult SER_LLM_MODE.
 
     The HTTP handler refuses this when Bedrock is off. A stub client injected
@@ -406,7 +564,8 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
     except Exception as exc:
         code, request_id, short = _failure_details(exc)
         _last_error = short
-        _audit_bedrock(
+        _audit_unless_abandoned(
+            call_id,
             result="error", model=model, region=region, request_id=request_id,
             latency_ms=0, error=code,
         )
@@ -427,10 +586,19 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
             latency_ms, _redact(request_id), model,
         )
         _last_error = ""
-        _audit_bedrock(
+        wrote = _audit_unless_abandoned(
+            call_id,
             result="ok", model=model, region=region, request_id=request_id,
             latency_ms=latency_ms,
         )
+        if not wrote:
+            _last_error = "Bedrock took too long."
+            return {
+                "ok": False,
+                "error": _last_error,
+                "error_code": "Timeout",
+                "request_id": request_id,
+            }
         out = dict(resp)
         out["ok"] = True
         return out
@@ -438,10 +606,18 @@ def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) 
         latency_ms = int((time.perf_counter() - started) * 1000)
         code, request_id, short = _failure_details(exc)
         _last_error = short
-        _audit_bedrock(
+        wrote = _audit_unless_abandoned(
+            call_id,
             result="error", model=model, region=region, request_id=request_id,
             latency_ms=latency_ms, error=code,
         )
+        if not wrote:
+            return {
+                "ok": False,
+                "error": "Bedrock took too long.",
+                "error_code": "Timeout",
+                "request_id": request_id,
+            }
         log.warning(
             "Bedrock agent Converse failed model=%s region=%s request_id=%s latency_ms=%s code=%s",
             model, region, request_id, latency_ms, code,

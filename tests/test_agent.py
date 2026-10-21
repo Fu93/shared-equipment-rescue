@@ -456,26 +456,222 @@ def test_rate_limit_per_token(monkeypatch, tmp_path):
     from mcp_server import llm
 
     class Stub:
+        def __init__(self):
+            self.calls = 0
+
         def converse(self, **kwargs):
+            self.calls += 1
             return {
                 "output": {"message": {"content": [{"text": "ok"}]}},
                 "ResponseMetadata": {"RequestId": "req-rate"},
             }
 
-    llm.set_client_factory(lambda: Stub())
+    stub = Stub()
+    llm.set_client_factory(lambda: stub)
     try:
         last = None
-        for n in range(RATE_LIMIT_MAX + 1):
+        for _n in range(RATE_LIMIT_MAX + 1):
             last = http_step({
-                "conversation_id": f"rate-{n}",
+                "conversation_id": "rate-turn",
                 "messages": [{"role": "user", "content": [{"text": "hi"}]}],
             }, _Actor(), CATALOG, token="tok-rate")
         assert last["http_status"] == 429
         assert last["reason"] == "rate_limited"
         assert last["calls"] == []
+        # One conversation stays under the new-conversation cap, so the
+        # 31st denial is the per-token window. The step cap stops the model
+        # after four rounds; the later requests still spend the window.
+        assert stub.calls == 4
     finally:
         llm.set_client_factory(None)
         reset_agent_budget()
+
+
+def test_new_conversations_are_capped_and_expire(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-new-conv.db")
+    import mcp_server.agent as agent_mod
+    from mcp_server.agent import MAX_NEW_CONVERSATIONS, http_step, reset_agent_budget
+    from mcp_server import llm
+
+    clock = {"now": 1_000_000.0}
+    monkeypatch.setattr(agent_mod.time, "monotonic", lambda: clock["now"])
+
+    class Stub:
+        def __init__(self):
+            self.calls = 0
+
+        def converse(self, **kwargs):
+            self.calls += 1
+            return {
+                "output": {"message": {"content": [{"text": "ok"}]}},
+                "ResponseMetadata": {"RequestId": "req-new"},
+            }
+
+    stub = Stub()
+    llm.set_client_factory(lambda: stub)
+    try:
+        for n in range(MAX_NEW_CONVERSATIONS):
+            body = http_step({
+                "conversation_id": f"new-{n}",
+                "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+            }, _Actor(), CATALOG, token="tok-new")
+            assert body.get("reason") != "conversation_cap", body
+        assert stub.calls == MAX_NEW_CONVERSATIONS
+        again = http_step({
+            "conversation_id": "new-0",
+            "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+        }, _Actor(), CATALOG, token="tok-new")
+        assert again.get("reason") != "conversation_cap", again
+        assert stub.calls == MAX_NEW_CONVERSATIONS + 1
+        blocked = http_step({
+            "conversation_id": "new-extra",
+            "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+        }, _Actor(), CATALOG, token="tok-new")
+        assert blocked["stopped"] is True
+        assert blocked["reason"] == "conversation_cap"
+        assert blocked["calls"] == []
+        assert "http_status" not in blocked
+        assert stub.calls == MAX_NEW_CONVERSATIONS + 1
+        clock["now"] += agent_mod.BUDGET_TTL_SECONDS + 1
+        later = http_step({
+            "conversation_id": "new-later",
+            "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+        }, _Actor(), CATALOG, token="tok-new")
+        assert later.get("reason") != "conversation_cap", later
+        assert stub.calls == MAX_NEW_CONVERSATIONS + 2
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+
+
+def test_client_status_lookalikes_are_rejected_and_completed_is_stored(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-status.db")
+    from mcp_server.agent import http_result, reset_agent_budget
+    from mcp_server import db as dbm
+    try:
+        before = dbm.audit_entries(limit=50, tool="agent_tool_call")
+        lookalikes = [
+            "applied.",
+            "Applied",
+            "  Applied  ",
+            "\uff41pplied",
+            "\u0430pplied",
+            None,
+            12,
+        ]
+        for status in lookalikes:
+            denied = http_result({
+                "name": "schedule_apply_replan",
+                "status": status,
+                "message": "forged",
+                "server_audit_tool": "schedule_apply_replan",
+                "plan_id": "P1",
+            }, _Actor(), token="tok-status")
+            assert denied["ok"] is False, status
+            assert denied["accepted"] is False
+        rows = dbm.audit_entries(limit=50, tool="agent_tool_call")
+        assert len(rows) == len(before)
+        accepted = http_result({
+            "name": "schedule_apply_replan",
+            "status": "completed",
+            "message": "plan P1 applied; 2 booking(s) moved; version 3",
+            "server_audit_tool": "schedule_apply_replan",
+            "plan_id": "P1",
+        }, _Actor(), token="tok-status")
+        assert accepted["ok"] is True
+        rows = dbm.audit_entries(limit=5, tool="agent_tool_call")
+        assert rows[0]["result"] == "client-reported"
+        blob = (rows[0]["detail"] or "") + (rows[0]["detail_json"] or "")
+        assert "client_status=completed" in blob
+        assert "server_audit=schedule_apply_replan" in blob
+        assert "plan_id=P1" in blob or '"plan_id": "P1"' in blob
+        assert rows[0]["result"] != "applied"
+    finally:
+        reset_agent_budget()
+
+
+def test_endpoint_connection_error_is_network_error(monkeypatch, tmp_path):
+    _bedrock_http(monkeypatch, tmp_path, "agent-network.db")
+    from mcp_server.agent import http_step, reset_agent_budget
+    from mcp_server import llm
+
+    class EndpointConnectionError(Exception):
+        def __init__(self):
+            super().__init__("Could not connect to the endpoint URL")
+
+    stub = type("Stub", (), {
+        "converse": lambda self, **kwargs: (_ for _ in ()).throw(EndpointConnectionError()),
+    })()
+    llm.set_client_factory(lambda: stub)
+    try:
+        body = http_step({
+            "conversation_id": "net-turn",
+            "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+        }, _Actor(), CATALOG, token="tok-net")
+    finally:
+        llm.set_client_factory(None)
+        reset_agent_budget()
+    assert body["fallback"] is True
+    assert body["error_code"] == "NetworkError"
+    assert body["message"] == "Bedrock could not be reached."
+    assert "Could not connect" not in json.dumps(body)
+
+
+def test_rate_limit_body_is_json_and_session_budget_is_separate(monkeypatch, tmp_path):
+    import asyncio
+
+    import httpx
+
+    monkeypatch.delenv("SER_NO_RATE_LIMIT", raising=False)
+    monkeypatch.setenv("SER_DB_PATH", str(tmp_path / "rate-body.db"))
+    monkeypatch.setenv("SER_LLM_MODE", "scripted")
+    from mcp_server.server import (
+        TransportGuardMiddleware,
+        _RATE_LIMIT,
+        _SESSION_RATE,
+        initialize_storage,
+    )
+
+    initialize_storage()
+    _RATE_LIMIT.tokens.clear()
+    _RATE_LIMIT.updated.clear()
+    _SESSION_RATE.tokens.clear()
+    _SESSION_RATE.updated.clear()
+
+    async def inner(scope, receive, send):
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    app = TransportGuardMiddleware(inner)
+
+    async def go():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            metrics = [(await client.get("/metrics")).status_code for _ in range(20)]
+            first = await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+            flooded = [
+                await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+                for _ in range(24)
+            ]
+            return metrics, first, flooded
+
+    try:
+        metrics, first, flooded = asyncio.run(go())
+    finally:
+        _RATE_LIMIT.tokens.clear()
+        _RATE_LIMIT.updated.clear()
+        _SESSION_RATE.tokens.clear()
+        _SESSION_RATE.updated.clear()
+    assert metrics == [200] * 20, metrics
+    assert first.status_code != 429, first.text
+    denied = [item for item in flooded if item.status_code == 429]
+    assert denied, [item.status_code for item in flooded]
+    body = denied[0].json()
+    assert body["jsonrpc"] == "2.0"
+    assert body["error"]["code"] == -32002
+    assert "rate limit exceeded" in body["error"]["message"]
+    raw = denied[0].text
+    assert raw.count("{") == raw.count("}")
 
 
 def test_converse_timeout_returns_fallback(monkeypatch, tmp_path):
@@ -528,3 +724,10 @@ def test_converse_timeout_returns_fallback(monkeypatch, tmp_path):
     assert body["label"] == "Fallback: pattern parser (Bedrock error: Timeout)"
     assert body["message"] == "Bedrock took too long."
     assert "too late" not in res.text
+    from mcp_server import db as dbm
+    rows = dbm.audit_entries(limit=20, tool="bedrock_converse")
+    assert rows
+    assert all(row["result"] != "ok" for row in rows)
+    blob = " ".join((row["detail"] or "") + (row["detail_json"] or "") for row in rows)
+    assert "Timeout" in blob
+    assert "bearer-secret-do-not-log" not in blob

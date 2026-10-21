@@ -541,6 +541,7 @@
         const DEMO_DATE = '__SER_DEMO_DATE__';
         const DEMO_TZ = '__SER_DEMO_TZ__';
         const DEMO_OFFSET = '__SER_DEMO_OFFSET__';
+        const ASSISTANT_BUSY = 'The assistant is busy. Waiting a moment, then trying again.';
         let bedrockOn = false;
         let bedrockResolved = false;
         let holdChatMode = false;
@@ -563,29 +564,46 @@
             // first and produced 'already recorded' on a fresh state.
             if (inflight) return { status: 'busy', message: 'A call is already in flight — one moment.' };
             inflight = true;
+            const delays = [0, 400, 900];
+            let told = false;
             try {
-                return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
-            } catch (err) {
-                // Distinguish the real cause: the SDK raises for every
-                // non-2xx, so a 429 (rate limit) or a 403 (origin/host guard)
-                // used to be reported as "MCP server unreachable" - which
-                // sends the judge hunting for a server that is running fine.
-                logMCP('in', 'tools/call:' + toolName, 'transport_error', err.message);
-                const code = (err && (err.code != null ? err.code : err.status)) || 0;
-                const text = String((err && err.message) || '');
-                let message;
-                if (code === 429 || /rate limit/i.test(text)) {
-                    message = 'Rate limited by the flood guard - wait a second and try again.';
-                } else if (code === 403 || /rejected|forbidden/i.test(text)) {
-                    message = 'Rejected by the transport guard (origin/host) - this page must be served from 127.0.0.1.';
-                } else if (code === 504 || /did not respond in time/i.test(text)) {
-                    message = 'The MCP server did not respond in time - check that it is running on :8765, then use Refresh.';
-                } else if (code === 502 || /unreachable/i.test(text)) {
-                    message = 'MCP server unreachable - start/restart it on :8765, then use Refresh.';
-                } else {
-                    message = 'MCP server unreachable or session dropped - start/restart it on :8765, then use Refresh.';
+                for (let attempt = 0; attempt < delays.length; attempt++) {
+                    if (delays[attempt]) await new Promise((r) => setTimeout(r, delays[attempt]));
+                    try {
+                        return await callTool(client, toolName, args || {}, { onLog: (e) => logMCP(e.direction || 'in', e.method || 'event', '', e.note || '') });
+                    } catch (err) {
+                        // Distinguish the real cause: the SDK raises for every
+                        // non-2xx, so a 429 (rate limit) or a 403 (origin/host guard)
+                        // used to be reported as "MCP server unreachable" - which
+                        // sends the judge hunting for a server that is running fine.
+                        const code = (err && (err.code != null ? err.code : err.status)) || 0;
+                        const text = String((err && err.message) || '');
+                        const limited = code === 429 || /rate limit/i.test(text);
+                        logMCP('in', 'tools/call:' + toolName, 'transport_error', limited ? 'rate limit' : text);
+                        if (limited && attempt < delays.length - 1) {
+                            if (!told) {
+                                addMessage(ASSISTANT_BUSY, 'system', speechTurn);
+                                told = true;
+                            }
+                            continue;
+                        }
+                        let message;
+                        if (limited) {
+                            message = ASSISTANT_BUSY;
+                            if (!told) addMessage(ASSISTANT_BUSY, 'system', speechTurn);
+                        } else if (code === 403 || /rejected|forbidden/i.test(text)) {
+                            message = 'Rejected by the transport guard (origin/host) - this page must be served from 127.0.0.1.';
+                        } else if (code === 504 || /did not respond in time/i.test(text)) {
+                            message = 'The MCP server did not respond in time - check that it is running on :8765, then use Refresh.';
+                        } else if (code === 502 || /unreachable/i.test(text)) {
+                            message = 'MCP server unreachable - start/restart it on :8765, then use Refresh.';
+                        } else {
+                            message = 'MCP server unreachable or session dropped - start/restart it on :8765, then use Refresh.';
+                        }
+                        return { status: 'transport_error', message: message, http_status: code || null };
+                    }
                 }
-                return { status: 'transport_error', message: message, http_status: code || null };
+                return { status: 'transport_error', message: ASSISTANT_BUSY, http_status: 429 };
             } finally {
                 inflight = false;
             }
@@ -1214,24 +1232,44 @@
             reconnecting = false;
         }
 
-        async function loadSchedule() {
-            if (!client) { reconnectLoop(); return; }
-            const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
-            if (data.status === 'busy') return lastSchedule;
-            if (data.status === 'ok') {
-                setLamp('on', 'connected');
-                renderSchedule(data);
-                if (data.viewer && data.viewer.role === 'manager') await loadChainBadge();
+        // One in-flight board read is shared. A forced read waits for that
+        // one to finish, then reads again, so the badge before Confirm is
+        // the version after the outage rather than the page-load snapshot.
+        // light skips the audit-chain call: the voice turn only needs the
+        // schedule version on the badge.
+        let scheduleFlight = null;
+        async function loadSchedule(opts) {
+            const force = !!(opts && opts.force);
+            const light = !!(opts && opts.light);
+            if (scheduleFlight) {
+                const pending = scheduleFlight;
+                if (!force) return pending;
+                try { await pending; } catch (e) { /* the joined read reports its own error */ }
             }
-            else if (data.status === 'transport_error') {
-                setLamp('off', 'server down');
-                client = null;
-                reconnectLoop();
-                return;
-            }
-            else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
-            await refreshBedrockLabel();
-            return data;
+            const run = (async () => {
+                if (!client) { reconnectLoop(); return; }
+                const data = await safeCall('schedule_get', { unit_id: 'lab-a', date: DEMO_DATE });
+                if (data.status === 'busy') return lastSchedule;
+                if (data.status === 'ok') {
+                    setLamp('on', 'connected');
+                    renderSchedule(data);
+                    if (!light && data.viewer && data.viewer.role === 'manager') await loadChainBadge();
+                }
+                else if (data.status === 'transport_error') {
+                    setLamp('off', 'server down');
+                    client = null;
+                    reconnectLoop();
+                    return;
+                }
+                else if (data.status === 'forbidden') addMessage('You do not have access to this schedule.', 'outage-message');
+                await refreshBedrockLabel();
+                return data;
+            })();
+            const tracked = run.finally(() => {
+                if (scheduleFlight === tracked) scheduleFlight = null;
+            });
+            scheduleFlight = tracked;
+            return tracked;
         }
 
         async function refreshBedrockLabel() {
@@ -1655,7 +1693,16 @@
             }
         }
 
-        async function deliverUtterance(text) {
+        // One page, one utterance at a time. Two hook calls in the same
+        // turn used to start two loops and collide on the in-flight guard.
+        let utteranceChain = Promise.resolve();
+        function deliverUtterance(text) {
+            const run = utteranceChain.then(() => runOneUtterance(text));
+            utteranceChain = run.then(() => {}, () => {});
+            return run;
+        }
+
+        async function runOneUtterance(text) {
             await sessionReady;
             await waitUntilIdle();
             onFinalUtterance(text);
@@ -1760,6 +1807,64 @@
             return id || 'turn';
         }
 
+        async function readJsonResponse(http) {
+            let text = '';
+            try { text = await http.text(); } catch (e) { text = ''; }
+            if (!text) return null;
+            try { return JSON.parse(text); } catch (e) { return null; }
+        }
+
+        async function postAgent(path, payload, speak) {
+            const delays = [0, 400, 900];
+            let told = false;
+            for (let i = 0; i < delays.length; i++) {
+                if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]));
+                let http;
+                try {
+                    http = await fetch(path, {
+                        method: 'POST',
+                        headers: {
+                            'content-type': 'application/json',
+                            'authorization': 'Bearer ' + currentToken,
+                        },
+                        body: JSON.stringify(payload),
+                    });
+                } catch (e) {
+                    if (!told) {
+                        addMessage(ASSISTANT_BUSY, 'system', speak);
+                        told = true;
+                    }
+                    continue;
+                }
+                const data = await readJsonResponse(http);
+                if (http.status === 429 || data == null) {
+                    if (!told) {
+                        addMessage(ASSISTANT_BUSY, 'system', speak);
+                        told = true;
+                    }
+                    continue;
+                }
+                return { ok: true, status: http.status, data: data };
+            }
+            return { ok: false };
+        }
+
+        function agentResultPayload(call, result) {
+            const applied = !!(result && result.status === 'applied');
+            const payload = {
+                name: call.name,
+                tool_use_id: call.toolUseId,
+                status: applied ? 'completed' : ((result && result.status) || 'error'),
+                message: (result && result.message) || '',
+            };
+            if (applied) {
+                payload.server_audit_tool = 'schedule_apply_replan';
+                const planId = (call.input && call.input.plan_id) || lastApplyPlanId || '';
+                if (planId) payload.plan_id = planId;
+            }
+            return payload;
+        }
+
         async function runAgentLoop(text) {
             const messages = [{ role: 'user', content: [{ text: text }] }];
             const conversationId = newConversationId();
@@ -1768,26 +1873,20 @@
             const speak = speechTurn;
             try {
                 while (rounds < 4 && executions < 4) {
-                    let res;
-                    try {
-                        const http = await fetch('/agent/step', {
-                            method: 'POST',
-                            headers: {
-                                'content-type': 'application/json',
-                                'authorization': 'Bearer ' + currentToken,
-                            },
-                            body: JSON.stringify({
-                                messages: messages,
-                                rounds: rounds,
-                                executions: executions,
-                                conversation_id: conversationId,
-                            }),
-                        });
-                        res = await http.json();
-                    } catch (e) {
-                        addMessage('The agent step failed. ' + (e && e.message ? e.message : ''), 'outage-message', speak);
+                    const posted = await postAgent('/agent/step', {
+                        messages: messages,
+                        rounds: rounds,
+                        executions: executions,
+                        conversation_id: conversationId,
+                    }, speak);
+                    if (!posted.ok) {
+                        holdChatMode = true;
+                        const mode = $('chatMode');
+                        if (mode) mode.textContent = 'Fallback: pattern parser (rate limit)';
+                        runPatternParser(text);
                         return;
                     }
+                    const res = posted.data;
                     if (!res || res.bedrock === false) {
                         bedrockOn = false;
                         const mode = $('chatMode');
@@ -1821,32 +1920,18 @@
                         return;
                     }
                     for (const call of calls) {
-                        if (call.name === 'schedule_apply_replan' && call.input) {
-                            lastApplyPlanId = call.input.plan_id;
+                        if (call.name === 'schedule_apply_replan') {
+                            if (call.input && call.input.plan_id) lastApplyPlanId = call.input.plan_id;
+                            await loadSchedule({ force: true, light: true });
                         }
                         const result = await safeCall(call.name, call.input || {});
-                        await loadSchedule();
                         executions += 1;
                         if (call.name === 'schedule_propose_replan' && result && result.plan_id) {
                             lastProposals.set(result.plan_id, result);
                             if (result.outage_id) lastProposals.set(result.outage_id, result);
                         }
                         addMessage(call.name + ' \u2192 ' + ((result && result.status) || 'error'), 'system');
-                        try {
-                            await fetch('/agent/result', {
-                                method: 'POST',
-                                headers: {
-                                    'content-type': 'application/json',
-                                    'authorization': 'Bearer ' + currentToken,
-                                },
-                                body: JSON.stringify({
-                                    name: call.name,
-                                    tool_use_id: call.toolUseId,
-                                    status: (result && result.status) || 'error',
-                                    message: (result && result.message) || '',
-                                }),
-                            });
-                        } catch (e) { /* the audit row is best-effort */ }
+                        await postAgent('/agent/result', agentResultPayload(call, result), speak);
                         let packed = '{}';
                         try { packed = JSON.stringify(result).slice(0, 4000); } catch (e) { packed = '{}'; }
                         messages.push({

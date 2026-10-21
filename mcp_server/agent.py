@@ -22,6 +22,7 @@ import json
 import re
 import threading
 import time
+import unicodedata
 from typing import Any, Callable, Dict, List, Optional
 
 from .llm import _redact
@@ -29,6 +30,8 @@ from .llm import _redact
 MAX_AGENT_STEPS = 4
 RATE_LIMIT_MAX = 30
 RATE_WINDOW_SECONDS = 60.0
+MAX_NEW_CONVERSATIONS = 8
+BUDGET_TTL_SECONDS = 120.0
 
 # Read and propose tools, plus apply through the existing Confirm path.
 VOICE_TOOL_ALLOWLIST = (
@@ -47,9 +50,12 @@ VOICE_TOOL_DENY = (
 )
 
 _CONV_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_STATUS_RE = re.compile(r"^[a-z0-9_-]+$")
+_REF_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 _lock = threading.Lock()
 _budgets: Dict[tuple, dict] = {}
 _hits: Dict[str, List[float]] = {}
+_opened: Dict[str, List[tuple]] = {}
 
 _MESSAGES = {
     "malformed": "The model returned a tool call this server cannot read. Nothing was called.",
@@ -65,14 +71,58 @@ _MESSAGES = {
     "empty": "The model returned no reply.",
     "model_error": "The model call failed. Nothing was called.",
     "rate_limited": "Too many agent requests. Wait a moment and try again.",
+    "conversation_cap": "Too many new conversations. Wait a moment and try again.",
 }
 
 
 def reset_agent_budget() -> None:
-    """Drop conversation caps and the per-token window. Tests call this."""
+    """Drop conversation caps, the per-token window, and opened-conversation stamps."""
     with _lock:
         _budgets.clear()
         _hits.clear()
+        _opened.clear()
+
+
+def _prune_locked(now: float) -> None:
+    """Drop idle budgets and stamps outside their windows. Caller holds _lock."""
+    stale = [
+        key for key, state in _budgets.items()
+        if now - float(state.get("seen", now)) > BUDGET_TTL_SECONDS
+    ]
+    for key in stale:
+        _budgets.pop(key, None)
+    for token, rows in list(_opened.items()):
+        fresh = [row for row in rows if row[0] >= now - RATE_WINDOW_SECONDS]
+        if fresh:
+            _opened[token] = fresh
+        else:
+            _opened.pop(token, None)
+    for token, stamps in list(_hits.items()):
+        fresh = [stamp for stamp in stamps if stamp >= now - RATE_WINDOW_SECONDS]
+        if fresh:
+            _hits[token] = fresh
+        else:
+            _hits.pop(token, None)
+
+
+def _allow_new_conversation(token: str, key: tuple, now: float) -> bool:
+    """True when this conversation may take a step.
+
+    An id already in the live budget is the same conversation. A new id
+    spends one of the token's new-conversation slots for the minute.
+    Caller holds _lock and has already pruned.
+    """
+    state = _budgets.get(key)
+    if state is not None:
+        state["seen"] = now
+        return True
+    rows = list(_opened.get(token, []))
+    if len(rows) >= MAX_NEW_CONVERSATIONS:
+        return False
+    rows.append((now, key[1]))
+    _opened[token] = rows
+    _budgets[key] = {"rounds": 0, "executions": 0, "seen": now}
+    return True
 
 
 def catalog_from_fastmcp(mcp_app) -> List[dict]:
@@ -284,17 +334,21 @@ def prepare_step(
     }
 
 
-def http_step(body: dict, principal, catalog: List[dict], token: str = "") -> dict:
+def http_step(body: dict, principal, catalog: List[dict], token: str = "",
+              call_id: str = "") -> dict:
     """POST /agent/step body. Bedrock off returns the fallback flag and does not call the model.
 
     Client rounds and executions are ignored. The server counts converse
-    rounds and approved calls for (user, conversation_id).
+    rounds and approved calls for (user, conversation_id). A token may open
+    only a few new conversation ids per minute. call_id lets a timed-out
+    Converse call ignore a late success.
     """
     from . import llm
 
     if llm.llm_mode() != "bedrock":
         return {"bedrock": False, "label": "Bedrock: off", "error": None}
-    if not _charge(token or getattr(principal, "user_id", "") or ""):
+    budget_token = token or getattr(principal, "user_id", "") or ""
+    if not _charge(budget_token):
         return _rate_limited_payload()
     messages = body.get("messages")
     if not isinstance(messages, list) or not messages:
@@ -305,13 +359,17 @@ def http_step(body: dict, principal, catalog: List[dict], token: str = "") -> di
     if not isinstance(conversation_id, str) or not _CONV_RE.fullmatch(conversation_id):
         return _stop("malformed", message="conversation_id is required")
     key = (getattr(principal, "user_id", "") or "", conversation_id)
+    now = time.monotonic()
     with _lock:
-        state = _budgets.setdefault(key, {"rounds": 0, "executions": 0})
+        _prune_locked(now)
+        if not _allow_new_conversation(budget_token or "anonymous", key, now):
+            return _stop("conversation_cap")
+        state = _budgets[key]
         rounds = int(state["rounds"])
         executions = int(state["executions"])
 
     def converse(msgs, tool_config):
-        return llm.agent_converse(msgs, tool_config)
+        return llm.agent_converse(msgs, tool_config, call_id=call_id)
 
     step = prepare_step(
         messages,
@@ -323,41 +381,74 @@ def http_step(body: dict, principal, catalog: List[dict], token: str = "") -> di
     )
     approved = len(step.get("calls") or [])
     with _lock:
-        state = _budgets.setdefault(key, {"rounds": 0, "executions": 0})
+        state = _budgets.setdefault(
+            key, {"rounds": 0, "executions": 0, "seen": time.monotonic()},
+        )
+        state["seen"] = time.monotonic()
         state["rounds"] = int(step.get("rounds", rounds))
         state["executions"] = int(state["executions"]) + approved
     return step
 
 
+def _normalize_client_status(raw: Any) -> Optional[str]:
+    """NFKC, strip, casefold, then an ASCII allowlist.
+
+    None, a trailing dot, a Cyrillic lookalike, or the word applied all
+    come back as None so the caller writes no audit row.
+    """
+    if not isinstance(raw, str):
+        return None
+    folded = unicodedata.normalize("NFKC", raw).strip().casefold()
+    if not _STATUS_RE.fullmatch(folded) or folded == "applied":
+        return None
+    return folded
+
+
+def _ref_token(raw: Any) -> str:
+    if not isinstance(raw, str) or not _REF_RE.fullmatch(raw):
+        return ""
+    return raw
+
+
 def http_result(body: dict, principal, token: str = "") -> dict:
     """POST /agent/result. Records a client-reported execution. Does not run a tool.
 
-    status=applied is refused and writes no audit row. Only schedule_apply_replan
-    on the server records an apply. Any other client status is stored as
-    client-reported, with the client's status kept in the detail text.
+    status=applied, and any status that is not a plain ASCII token, is refused
+    and writes no audit row. Only schedule_apply_replan on the server records
+    an apply. The page reports completed and may cite that server tool and plan.
     """
     if not _charge(token or getattr(principal, "user_id", "") or ""):
         return _rate_limited_payload()
     name = body.get("name") if isinstance(body.get("name"), str) else ""
-    status = body.get("status") if isinstance(body.get("status"), str) else ""
+    status = _normalize_client_status(body.get("status"))
     message = body.get("message") if isinstance(body.get("message"), str) else ""
-    if status.lower() == "applied":
+    if status is None:
         return {
             "ok": False,
             "accepted": False,
             "error": "client-reported apply is not accepted",
         }
+    audit_tool = _ref_token(body.get("server_audit_tool"))
+    plan_id = _ref_token(body.get("plan_id"))
+    detail = f"phase=result tool={name[:80]} client_status={status}"
+    extra = {
+        "message": _redact(message)[:300],
+        "tool_use_id": str(body.get("tool_use_id") or "")[:80],
+        "client_status": status,
+    }
+    if audit_tool:
+        detail += f" server_audit={audit_tool}"
+        extra["server_audit_tool"] = audit_tool
+    if plan_id:
+        detail += f" plan_id={plan_id}"
+        extra["plan_id"] = plan_id
     _audit_call(
         principal,
         phase="result",
         name=name[:80],
         status="client-reported",
-        detail=f"phase=result tool={name[:80]} client_status={status[:80]}",
-        extra={
-            "message": _redact(message)[:300],
-            "tool_use_id": str(body.get("tool_use_id") or "")[:80],
-            "client_status": status[:80],
-        },
+        detail=detail,
+        extra=extra,
     )
     return {"ok": True, "accepted": True}
 
@@ -367,9 +458,9 @@ def _charge(token: str) -> bool:
     key = token or "anonymous"
     now = time.monotonic()
     with _lock:
-        fresh = [stamp for stamp in _hits.get(key, []) if stamp >= now - RATE_WINDOW_SECONDS]
+        _prune_locked(now)
+        fresh = list(_hits.get(key, []))
         if len(fresh) >= RATE_LIMIT_MAX:
-            _hits[key] = fresh
             return False
         fresh.append(now)
         _hits[key] = fresh

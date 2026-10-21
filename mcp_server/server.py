@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -169,11 +170,12 @@ class _TokenBucket:
             self.updated.pop(k, None)
 
 
-# Flood budget: ~4 req/s sustained, burst 16 — far above any legitimate demo
-# flow (a browser session issues <2 req/s), far below API-abuse rates.
-# Tests disable it via SER_NO_RATE_LIMIT=1, checked per request so the env may
-# be set after import (they share one loopback IP and open/close sessions fast).
+# Flood budget for MCP traffic: ~4 req/s sustained, burst 16. A voice turn
+# also polls /metrics and posts /agent/step and /agent/result. Those share a
+# separate, still bounded budget so they do not spend the flood bucket.
+# Tests disable both via SER_NO_RATE_LIMIT=1, checked per request.
 _RATE_LIMIT = _TokenBucket(rate_per_sec=4.0, burst=16)
+_SESSION_RATE = _TokenBucket(rate_per_sec=20.0, burst=40)
 
 
 def _rate_limit_enabled() -> bool:
@@ -227,6 +229,18 @@ def _db_facts() -> dict:
         return {"error": str(exc)[:120]}
 
 
+def _session_aux_request(scope) -> bool:
+    """Board polls and the voice loop's own agent posts.
+
+    They are limited on _SESSION_RATE, not on the MCP flood bucket.
+    """
+    path = (scope.get("path") or "").rstrip("/")
+    method = scope.get("method") or ""
+    if method == "GET" and path == "/metrics":
+        return True
+    return method == "POST" and path in ("/agent/step", "/agent/result")
+
+
 def _client_key(scope) -> str:
     """Rate-limit bucket key for one request.
 
@@ -277,12 +291,15 @@ class TransportGuardMiddleware:
             await self._reject(scope, send, peer, "host",
                                f"unrecognized Host {host!r}")
             return
-        if _rate_limit_enabled() and not _RATE_LIMIT.allow(peer):
-            await self._reject(scope, send, peer, "rate_429",
-                               "rate limit exceeded", status=429)
-            return
+        session_aux = _session_aux_request(scope)
         if _rate_limit_enabled():
-            _RATE_LIMIT.trim()
+            bucket = _SESSION_RATE if session_aux else _RATE_LIMIT
+            bucket_key = peer + (":session" if session_aux else "")
+            if not bucket.allow(bucket_key):
+                await self._reject(scope, send, peer, "rate_429",
+                                   "rate limit exceeded", status=429)
+                return
+            bucket.trim()
         if scope.get("path") == "/metrics" and scope.get("method") == "GET":
             await self._metrics(send)
             return
@@ -431,17 +448,22 @@ class TransportGuardMiddleware:
             token = parts[1].strip()
         catalog = catalog_from_fastmcp(mcp)
         if path == "/agent/step":
+            call_id = uuid.uuid4().hex
             loop = asyncio.get_running_loop()
             try:
                 payload = await asyncio.wait_for(
                     loop.run_in_executor(
                         None,
-                        lambda: http_step(body, principal, catalog, token=token),
+                        lambda: http_step(
+                            body, principal, catalog, token=token, call_id=call_id,
+                        ),
                     ),
                     timeout=CONVERSE_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
-                payload = timeout_fallback(int(CONVERSE_TIMEOUT_SECONDS * 1000))
+                payload = timeout_fallback(
+                    int(CONVERSE_TIMEOUT_SECONDS * 1000), call_id=call_id,
+                )
         else:
             payload = http_result(body, principal, token=token)
         status = 200
@@ -506,10 +528,11 @@ class TransportGuardMiddleware:
                 peer=peer, event=event, why=message, path=path
             ),
         )
-        body = (
-            '{"jsonrpc":"2.0","id":null,"error":{"code":-32002,'
-            f'"message":"rejected: {message}"}}'
-        ).encode()
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32002, "message": f"rejected: {message}"},
+        }).encode()
         await send(
             {
                 "type": "http.response.start",

@@ -275,13 +275,14 @@ def test_bearer_disables_ec2_metadata(monkeypatch):
 
 def test_bedrock_client_is_cached(monkeypatch):
     monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
+    monkeypatch.delenv("SER_BEDROCK_STUB", raising=False)
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     llm.set_client_factory(None)
     calls = []
     sentinel = object()
 
-    def client(name, region_name=None):
-        calls.append((name, region_name))
+    def client(name, region_name=None, config=None):
+        calls.append((name, region_name, config))
         return sentinel
 
     import boto3
@@ -291,7 +292,101 @@ def test_bedrock_client_is_cached(monkeypatch):
         assert llm._make_client() is sentinel
     finally:
         llm.set_client_factory(None)
-    assert calls == [("bedrock-runtime", "us-east-1")]
+    assert len(calls) == 1
+    name, region, config = calls[0]
+    assert (name, region) == ("bedrock-runtime", "us-east-1")
+    assert config.connect_timeout == 5
+    assert config.read_timeout == 20
+    assert config.retries["mode"] == "standard"
+    assert config.retries["max_attempts"] == 2
+
+
+def test_abandoned_converse_skips_a_late_ok_row(monkeypatch, tmp_path):
+    token = "bearer-secret-do-not-log"
+    monkeypatch.setenv("SER_LLM_MODE", "bedrock")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", token)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.delenv("SER_BEDROCK_STUB", raising=False)
+    _init_db(monkeypatch, tmp_path)
+    llm._abandoned_calls.clear()
+
+    class Ok:
+        def converse(self, **kwargs):
+            return {
+                "output": {"message": {"content": [{"text": "late"}]}},
+                "ResponseMetadata": {"RequestId": "req-late"},
+            }
+
+    llm.set_client_factory(lambda: Ok())
+    llm.abandon_converse("call-abandon-1", latency_ms=25)
+    try:
+        out = llm.agent_converse(
+            [{"role": "user", "content": [{"text": "hi"}]}],
+            {"tools": []},
+            call_id="call-abandon-1",
+        )
+    finally:
+        llm.set_client_factory(None)
+        llm._abandoned_calls.clear()
+    assert out["ok"] is False
+    assert out["error_code"] == "Timeout"
+    assert out["error"] == "Bedrock took too long."
+    from mcp_server import db as dbm
+    rows = dbm.audit_entries(limit=10, tool="bedrock_converse")
+    assert rows
+    assert all(row["result"] != "ok" for row in rows)
+    blob = " ".join((row["detail"] or "") + (row["detail_json"] or "") for row in rows)
+    assert "Timeout" in blob
+    assert token not in blob
+
+
+def test_voice_stub_reports_then_proposes_then_applies(monkeypatch):
+    monkeypatch.setenv("SER_BEDROCK_STUB", "voice")
+    monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
+    llm.set_client_factory(None)
+    llm._voice_demo_client = None
+    llm._cached_client = None
+    try:
+        client = llm._make_client()
+        first = client.converse(messages=[{"role": "user", "content": [{"text": "hi"}]}])
+        use = first["output"]["message"]["content"][0]["toolUse"]
+        assert use["name"] == "equipment_report_outage"
+        assert use["input"]["equipment_id"] == "confocal-a"
+        messages = [
+            {"role": "user", "content": [{"text": "hi"}]},
+            first["output"]["message"],
+            {"role": "user", "content": [{
+                "toolResult": {
+                    "toolUseId": use["toolUseId"],
+                    "content": [{"text": '{"outage_id": "O1", "schedule_version": 2}'}],
+                },
+            }]},
+        ]
+        second = client.converse(messages=messages)
+        use2 = second["output"]["message"]["content"][0]["toolUse"]
+        assert use2["name"] == "schedule_propose_replan"
+        assert use2["input"] == {"outage_id": "O1", "schedule_version": 2}
+        messages.extend([
+            second["output"]["message"],
+            {"role": "user", "content": [{
+                "toolResult": {
+                    "toolUseId": use2["toolUseId"],
+                    "content": [{"text": '{"plan_id": "P1", "schedule_version": 2}'}],
+                },
+            }]},
+        ])
+        third = client.converse(messages=messages)
+        use3 = third["output"]["message"]["content"][0]["toolUse"]
+        assert use3["name"] == "schedule_apply_replan"
+        assert use3["input"] == {"plan_id": "P1", "schedule_version": 2}
+        messages.append(third["output"]["message"])
+        done = client.converse(messages=messages)
+        text = done["output"]["message"]["content"][0]["text"]
+        assert "confirm" in text.lower()
+        assert done["ResponseMetadata"]["RequestId"] == "req-voice-stub"
+    finally:
+        llm.set_client_factory(None)
+        llm._voice_demo_client = None
 
 
 def test_schedule_get_skips_bedrock_unless_narration_is_requested(monkeypatch, tmp_path):

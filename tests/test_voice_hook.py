@@ -30,6 +30,12 @@ def test_page_uses_web_speech_and_the_simulation_hook():
     assert re.search(r"/\^\\s\*alexa\\b/i", html)
     assert "get('utterance')" in html
     assert "Fallback: pattern parser (Bedrock off)" in html
+    assert "Fallback: pattern parser (rate limit)" in html
+    assert "The assistant is busy. Waiting a moment, then trying again." in html
+    assert "utteranceChain" in html
+    assert "light: true" in html
+    assert "server_audit_tool" in html
+    assert "'completed'" in html
     assert "This browser has no speech recognition" in html
     assert "Microphone permission was denied" in html
     lowered = html.lower()
@@ -183,3 +189,288 @@ async def _drive():
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+
+def _free_port() -> int:
+    import socket
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _spawn(env, boot_source: str):
+    """Start MCP and the web shell. Caller terminates both processes."""
+    import subprocess
+    import sys
+    import tempfile
+
+    mcp_port = _free_port()
+    web_port = _free_port()
+    boot = os.path.join(tempfile.gettempdir(), f"ser_voice_boot_{os.getpid()}_{mcp_port}.py")
+    with open(boot, "w", encoding="utf-8") as handle:
+        handle.write(boot_source % mcp_port)
+    mcp = subprocess.Popen(
+        [sys.executable, "-X", "utf8", boot], cwd=ROOT, env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    web = subprocess.Popen(
+        [sys.executable, "-X", "utf8", "app.py", "--port", str(web_port), "--mcp-port", str(mcp_port)],
+        cwd=os.path.join(ROOT, "web"), env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return mcp, web, f"http://127.0.0.1:{web_port}", boot
+
+
+def _stop(mcp, web, boot):
+    import subprocess
+    for proc in (web, mcp):
+        if proc.poll() is None:
+            proc.terminate()
+    for proc in (web, mcp):
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    if boot and os.path.exists(boot):
+        os.remove(boot)
+
+
+async def _wait_ready(url: str):
+    import time
+    import httpx
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            if httpx.get(url, timeout=2).status_code == 200:
+                return
+        except httpx.HTTPError:
+            time.sleep(0.3)
+    raise AssertionError("web shell did not start")
+
+
+def _base_env(dbp: str) -> dict:
+    env = dict(os.environ)
+    env["SER_DB_PATH"] = dbp
+    env["SER_DEMO_DATE"] = "2026-10-20"
+    env["SER_DEMO_TZ"] = "Europe/London"
+    env["PYTHONUTF8"] = "1"
+    env.pop("SER_NO_RATE_LIMIT", None)
+    return env
+
+
+@pytest.mark.skipif(not _playwright_available(), reason="no browser available in this environment")
+def test_voice_turn_reaches_confirm_with_the_rate_limiter_on():
+    import asyncio
+    asyncio.run(_confirm_under_limit())
+
+
+async def _confirm_under_limit():
+    import tempfile
+
+    from playwright.async_api import async_playwright
+
+    dbp = os.path.join(tempfile.gettempdir(), f"ser_voice_limit_{os.getpid()}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+    env = _base_env(dbp)
+    env["SER_LLM_MODE"] = "bedrock"
+    env["AWS_BEARER_TOKEN_BEDROCK"] = "bearer-secret-do-not-log"
+    env["AWS_REGION"] = "us-east-1"
+    env["BEDROCK_MODEL_ID"] = "amazon.nova-lite-v1:0"
+    env["SER_BEDROCK_STUB"] = "voice"
+    boot_source = (
+        "import os, sys, uvicorn\n"
+        f"sys.path.insert(0, {ROOT!r})\n"
+        f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+        "os.environ['SER_DEMO_DATE'] = '2026-10-20'\n"
+        "os.environ['SER_DEMO_TZ'] = 'Europe/London'\n"
+        "os.environ['SER_LLM_MODE'] = 'bedrock'\n"
+        "os.environ['AWS_BEARER_TOKEN_BEDROCK'] = 'bearer-secret-do-not-log'\n"
+        "os.environ['AWS_REGION'] = 'us-east-1'\n"
+        "os.environ['BEDROCK_MODEL_ID'] = 'amazon.nova-lite-v1:0'\n"
+        "os.environ['SER_BEDROCK_STUB'] = 'voice'\n"
+        "os.environ.pop('SER_NO_RATE_LIMIT', None)\n"
+        "from mcp_server.server import build_app\n"
+        "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+    )
+    mcp, web, url, boot = _spawn(env, boot_source)
+    limited = []
+    try:
+        await _wait_ready(url)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda err: errors.append(str(err)))
+            page.on("response", lambda res: limited.append(res.url) if res.status == 429 else None)
+            from urllib.parse import quote
+            await page.goto(
+                url + "/?utterance=" + quote("Alexa, Confocal A is down until 4pm"),
+                wait_until="domcontentloaded",
+            )
+            try:
+                await page.wait_for_function(
+                    """() => {
+                        const card = document.getElementById('confirmCard');
+                        const badge = document.getElementById('verBadge');
+                        return card && !card.classList.contains('hidden')
+                            && badge && badge.textContent === 'v2';
+                    }""",
+                    timeout=25000,
+                )
+            except Exception:
+                body = await page.inner_text("body")
+                raise AssertionError(body[:2500] + "\n429s=" + str(limited))
+            assert not limited, limited
+            body = await page.inner_text("body")
+            assert "bearer-secret-do-not-log" not in body
+            assert not errors, errors
+            await browser.close()
+    finally:
+        _stop(mcp, web, boot)
+
+
+@pytest.mark.skipif(not _playwright_available(), reason="no browser available in this environment")
+def test_back_to_back_hooks_run_one_at_a_time():
+    import asyncio
+    asyncio.run(_serialized_hooks())
+
+
+async def _serialized_hooks():
+    import tempfile
+
+    from playwright.async_api import async_playwright
+
+    dbp = os.path.join(tempfile.gettempdir(), f"ser_voice_queue_{os.getpid()}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+    env = _base_env(dbp)
+    env["SER_LLM_MODE"] = "scripted"
+    env["SER_NO_RATE_LIMIT"] = "1"
+    boot_source = (
+        "import os, sys, uvicorn\n"
+        f"sys.path.insert(0, {ROOT!r})\n"
+        f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+        "os.environ['SER_DEMO_DATE'] = '2026-10-20'\n"
+        "os.environ['SER_DEMO_TZ'] = 'Europe/London'\n"
+        "os.environ['SER_LLM_MODE'] = 'scripted'\n"
+        "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
+        "from mcp_server.server import build_app\n"
+        "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+    )
+    mcp, web, url, boot = _spawn(env, boot_source)
+    try:
+        await _wait_ready(url)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda err: errors.append(str(err)))
+            await page.goto(url, wait_until="domcontentloaded")
+            await page.wait_for_function(
+                "() => typeof window.serSimulateUtterance === 'function'",
+                timeout=20000,
+            )
+            await page.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v1'",
+                timeout=20000,
+            )
+            await page.evaluate(
+                """() => Promise.all([
+                    window.serSimulateUtterance('Alexa, Confocal A is down until 4pm'),
+                    window.serSimulateUtterance('Alexa, Confocal A is down until 4pm'),
+                ])"""
+            )
+            await page.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v2'",
+                timeout=20000,
+            )
+            chat = await page.locator(".chat-messages").inner_text()
+            assert "already recorded" in chat
+            assert "already in flight" not in chat
+            assert "busy" not in chat.lower()
+            assert not errors, errors
+            await browser.close()
+    finally:
+        _stop(mcp, web, boot)
+
+
+@pytest.mark.skipif(not _playwright_available(), reason="no browser available in this environment")
+def test_non_json_429_falls_back_to_the_pattern_parser():
+    import asyncio
+    asyncio.run(_routed_429())
+
+
+async def _routed_429():
+    import json
+    import tempfile
+
+    from playwright.async_api import async_playwright
+
+    dbp = os.path.join(tempfile.gettempdir(), f"ser_voice_429_{os.getpid()}.db")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(dbp + suffix):
+            os.remove(dbp + suffix)
+    env = _base_env(dbp)
+    env["SER_LLM_MODE"] = "scripted"
+    env["SER_NO_RATE_LIMIT"] = "1"
+    boot_source = (
+        "import os, sys, uvicorn\n"
+        f"sys.path.insert(0, {ROOT!r})\n"
+        f"os.environ['SER_DB_PATH'] = {dbp!r}\n"
+        "os.environ['SER_DEMO_DATE'] = '2026-10-20'\n"
+        "os.environ['SER_DEMO_TZ'] = 'Europe/London'\n"
+        "os.environ['SER_LLM_MODE'] = 'scripted'\n"
+        "os.environ['SER_NO_RATE_LIMIT'] = '1'\n"
+        "from mcp_server.server import build_app\n"
+        "uvicorn.run(build_app(), host='127.0.0.1', port=%d, log_level='error')\n"
+    )
+    mcp, web, url, boot = _spawn(env, boot_source)
+    try:
+        await _wait_ready(url)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda err: errors.append(str(err)))
+            metrics = {
+                "proxy": {},
+                "server": {"bedrock": {
+                    "on": True,
+                    "label": "Bedrock: on (amazon.nova-lite-v1:0, us-east-1)",
+                    "error": None,
+                }},
+            }
+
+            async def metrics_route(route):
+                await route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(metrics),
+                )
+
+            async def step_route(route):
+                await route.fulfill(status=429, content_type="text/plain", body="not-json")
+
+            await page.route("**/metrics", metrics_route)
+            await page.route("**/agent/step", step_route)
+            from urllib.parse import quote
+            await page.goto(
+                url + "/?utterance=" + quote("Alexa, Confocal A is down until 4pm"),
+                wait_until="domcontentloaded",
+            )
+            await page.wait_for_function(
+                "() => (document.getElementById('verBadge') || {}).textContent === 'v2'",
+                timeout=20000,
+            )
+            mode = await page.text_content("#chatMode")
+            chat = await page.locator(".chat-messages").inner_text()
+            assert mode == "Fallback: pattern parser (rate limit)"
+            assert "The assistant is busy. Waiting a moment, then trying again." in chat
+            assert "not-json" not in chat
+            assert not errors, errors
+            await browser.close()
+    finally:
+        _stop(mcp, web, boot)
