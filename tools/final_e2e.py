@@ -64,6 +64,8 @@ async def main():
     if os.path.exists(dbp):
         os.remove(dbp)
     os.environ["SER_DB_PATH"] = dbp
+    os.environ.setdefault("SER_DEMO_DATE", "2026-10-20")
+    os.environ.setdefault("SER_DEMO_TZ", "Europe/London")
     # the suite fires sessions faster than any real client; a token bucket
     # built for untrusted traffic must not flake the acceptance run
     # (same policy as tests/test_server.py)

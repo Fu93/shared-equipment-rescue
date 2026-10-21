@@ -64,6 +64,9 @@ async def main() -> int:
     env = dict(os.environ)
     env["SER_DB_PATH"] = dbp
     env["PYTHONUTF8"] = "1"
+    env["SER_DEMO_DATE"] = "2026-10-20"
+    env["SER_DEMO_TZ"] = "Europe/London"
+    env["SER_LLM_MODE"] = "scripted"
 
     mcp_port = _free_port()
     web_port = _free_port()

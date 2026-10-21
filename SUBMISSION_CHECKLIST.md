@@ -4,7 +4,7 @@ English translation of the original checklist. Each section keeps the original, 
 
 **TODO for the author:** the "70 passed" line is the checklist's own status note from 2026-10-21. The README states the count measured for this change. Do not read the "70" below as a new measurement.
 
-**TODO for the author:** section 3 marks the AWS Builder items done. `boto3>=1.39` is in `requirements.txt`. The optional path is one Amazon Nova Lite call through the Bedrock Converse API. It rephrases the `schedule_get` sentence and does not book anything. There is no agent loop. `test_bedrock_converse_live` skips unless `AWS_BEARER_TOKEN_BEDROCK` is set. Confirm the Devpost AWS Builder box from a run you watched.
+**TODO for the author:** section 3 marks the AWS Builder items done. `boto3>=1.39` is in `requirements.txt`. Amazon Nova Lite through the Bedrock Converse API rephrases the `schedule_get` sentence and, when the page shows Bedrock on, proposes tool calls in a loop capped at 4 steps. The engine still decides every move, and `schedule_apply_replan` still waits for the Confirm click. `test_bedrock_converse_live` skips unless `AWS_BEARER_TOKEN_BEDROCK` is set. Confirm the Devpost AWS Builder box from a run you watched.
 
 ---
 

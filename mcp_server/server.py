@@ -286,6 +286,10 @@ class TransportGuardMiddleware:
         if scope.get("path") == "/metrics" and scope.get("method") == "GET":
             await self._metrics(send)
             return
+        agent_path = (scope.get("path") or "").rstrip("/")
+        if scope.get("method") == "POST" and agent_path in ("/agent/step", "/agent/result"):
+            await self._agent(scope, receive, send, headers, agent_path)
+            return
         if scope.get("method") == "POST" and scope.get("path", "").rstrip("/") == "/mcp":
             ok, err, receive = await self._strict_arguments(scope, receive)
             if not ok:
@@ -398,6 +402,72 @@ class TransportGuardMiddleware:
                     "headers": [(b"content-type", b"application/json"),
                                 (b"cache-control", b"no-store")]})
         await send({"type": "http.response.body", "body": body})
+
+    async def _agent(self, scope, receive, send, headers, path: str) -> None:
+        """One bounded agent step, or an audit of a call the browser already ran.
+
+        This is not an MCP tool. The browser keeps its Streamable HTTP session
+        and executes accepted calls there, so schedule_apply_replan still
+        elicits on the Confirm card. A missing or unknown bearer is refused.
+        The bearer value is not written to the audit log.
+        """
+        from .agent import catalog_from_fastmcp, http_result, http_step
+        from .auth import principal_from_headers
+
+        principal = principal_from_headers(lambda name: headers.get(name.lower()))
+        if principal is None:
+            await self._send_json(send, 401, {"error": "authentication required"})
+            return
+        body, err = await self._read_json_body(receive)
+        if err:
+            await self._send_json(send, 400, {"error": err, "bedrock": True, "stopped": True,
+                                              "calls": [], "message": err})
+            return
+        catalog = catalog_from_fastmcp(mcp)
+        if path == "/agent/step":
+            payload = http_step(body, principal, catalog)
+        else:
+            payload = http_result(body, principal)
+        await self._send_json(send, 200, payload)
+
+    @staticmethod
+    async def _read_json_body(receive):
+        body = bytearray()
+        while True:
+            message = await receive()
+            mtype = message.get("type", "")
+            if mtype == "http.request":
+                body += message.get("body", b"")
+                if len(body) > 200_000:
+                    return {}, "request body is too large"
+                if not message.get("more_body", False):
+                    break
+            elif mtype == "http.disconnect":
+                return {}, "client disconnected"
+            else:
+                break
+        if not body:
+            return {}, "request body is empty"
+        try:
+            parsed = json.loads(bytes(body))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}, "request body is not JSON"
+        if not isinstance(parsed, dict):
+            return {}, "request body must be a JSON object"
+        return parsed, ""
+
+    @staticmethod
+    async def _send_json(send, status: int, payload: dict) -> None:
+        raw = json.dumps(payload, ensure_ascii=False).encode()
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"cache-control", b"no-store"),
+            ],
+        })
+        await send({"type": "http.response.body", "body": raw})
 
     @staticmethod
     async def _reject(scope, send, peer: str, event: str, message: str,

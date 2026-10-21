@@ -1,4 +1,7 @@
-"""Seed data — exactly the plan §3/§8 demo scenario for 2026-10-20 BST (+01:00).
+"""Seed data — the plan §3/§8 demo scenario on SER_DEMO_DATE.
+
+Wall times stay 09:00–18:00 in the configured zone. The offset is the real
+one for that date (BST or GMT), not a hard-coded +01:00.
 
 Permissions: Wang = confocal-a ONLY (otherwise engine would pick B over
 the expected A 16:00 for B4). Chen = researcher [A,B]; Li = researcher [B];
@@ -12,8 +15,7 @@ import sqlite3
 from typing import Optional
 
 from . import constants as C
-
-_TZ = "+01:00"
+from .timeutil import local_iso
 
 _USERS = [
     ("user-manager", "Facility Manager", "manager", C.TOKEN_MANAGER),
@@ -27,26 +29,21 @@ _EQUIPMENT = [
     ("confocal-b", C.UNIT_ID, "Confocal Microscope B", "09:00", "18:00", 15),
 ]
 
+# Wall times only. seed() stamps them onto the demo date in the configured zone.
 _BOOKINGS = [
     # B1 Wang on A 09:00-10:00, no deadline, movable
-    ("B1", "user-wang", "confocal-a", f"2026-10-20T09:00:00{_TZ}", f"2026-10-20T10:00:00{_TZ}",
-     None, 1, "confirmed"),
+    ("B1", "user-wang", "confocal-a", "09:00", "10:00", None, 1, "confirmed"),
     # B2 Chen on A 10:00-11:00, deadline 13:00, movable
-    ("B2", "user-chen", "confocal-a", f"2026-10-20T10:00:00{_TZ}", f"2026-10-20T11:00:00{_TZ}",
-     f"2026-10-20T13:00:00{_TZ}", 1, "confirmed"),
+    ("B2", "user-chen", "confocal-a", "10:00", "11:00", "13:00", 1, "confirmed"),
     # B3 Li on B 10:00-11:00, NOT movable, no deadline
-    ("B3", "user-li", "confocal-b", f"2026-10-20T10:00:00{_TZ}", f"2026-10-20T11:00:00{_TZ}",
-     None, 0, "confirmed"),
+    ("B3", "user-li", "confocal-b", "10:00", "11:00", None, 0, "confirmed"),
     # B4 Wang on A 11:00-12:00 (used to test the B12:30 vs A16:00 branch),
     # deadline 18:00, movable
-    ("B4", "user-wang", "confocal-a", f"2026-10-20T11:00:00{_TZ}", f"2026-10-20T12:00:00{_TZ}",
-     f"2026-10-20T18:00:00{_TZ}", 1, "confirmed"),
+    ("B4", "user-wang", "confocal-a", "11:00", "12:00", "18:00", 1, "confirmed"),
     # B5 Li on B 14:00-15:00
-    ("B5", "user-li", "confocal-b", f"2026-10-20T14:00:00{_TZ}", f"2026-10-20T15:00:00{_TZ}",
-     None, 1, "confirmed"),
+    ("B5", "user-li", "confocal-b", "14:00", "15:00", None, 1, "confirmed"),
     # B6 Chen on B 15:00-16:00
-    ("B6", "user-chen", "confocal-b", f"2026-10-20T15:00:00{_TZ}", f"2026-10-20T16:00:00{_TZ}",
-     None, 1, "confirmed"),
+    ("B6", "user-chen", "confocal-b", "15:00", "16:00", None, 1, "confirmed"),
 ]
 
 _PERMISSIONS = {
@@ -76,7 +73,10 @@ def seed(conn: sqlite3.Connection, db_path: Optional[str] = None) -> None:
             " available_end, buffer_minutes) VALUES (?,?,?,?,?,?)",
             (eid, unit_id, name, bs, be, buf),
         )
-    for bid, uid, eid, start, end, deadline, movable, status in _BOOKINGS:
+    for bid, uid, eid, start_hm, end_hm, deadline_hm, movable, status in _BOOKINGS:
+        start = local_iso(C.DEMO_DATE, start_hm)
+        end = local_iso(C.DEMO_DATE, end_hm)
+        deadline = local_iso(C.DEMO_DATE, deadline_hm) if deadline_hm else None
         conn.execute(
             "INSERT INTO bookings(id, user_id, equipment_id, booking_date,"
             " original_start, original_end, current_start, current_end,"

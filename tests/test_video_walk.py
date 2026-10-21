@@ -141,7 +141,7 @@ async def _walk():
                   and "confocal microscope b" in panel.lower(), panel[:200])
             check("0:00", "MCP dev console shows real tools/call",
                   "tools/call" in body.lower(), body[:200])
-            check("0:00", "protocol version shown", "2025-11-25" in body, body[:200])
+            check("0:00", "protocol version shown", "MCP spec 2025-11-25" in body, body[:200])
             check("0:00", "no JS errors", not errs, str(errs[:2]))
 
             # The badge row must not overlap: the connection lamp used to be

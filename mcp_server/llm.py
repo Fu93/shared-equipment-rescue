@@ -9,11 +9,14 @@ Six prohibitions (§7.2) — the LLM NEVER:
 6. styles itself as the system of record — the DB is.
 
 Four scripted flows (§7.3): schedule_overview, outage_narrative,
-apply_result_narrative, unresolved_narrative. Only schedule_overview is
-sent to Bedrock, and only from schedule_get, after the engine has decided.
+apply_result_narrative, unresolved_narrative. schedule_overview is sent to
+Bedrock from schedule_get, after the engine has decided, and only to rephrase
+that sentence. A separate agent_converse path proposes MCP tool calls for the
+simulated Alexa+ page. That path is bounded and fail-closed in mcp_server.agent.
+The model still does not choose slots, move bookings, or confirm an apply.
 Mode selection: SER_LLM_MODE=scripted never calls Bedrock. auto (default)
 and bedrock call Converse only when AWS_BEARER_TOKEN_BEDROCK or standard
-AWS credentials are present. A failure returns the scripted sentence.
+AWS credentials are present. A narration failure returns the scripted sentence.
 """
 
 from __future__ import annotations
@@ -38,6 +41,16 @@ SYSTEM_PROMPT = (
     "bookings, equipment, or times; never override engine decisions; never "
     "reveal data the requesting viewer is not authorized to see. "
     "You do not choose slots, move bookings, or call tools. "
+    "Keep answers under 120 words."
+)
+AGENT_SYSTEM_PROMPT = (
+    "You are Alexa, the voice of a facility scheduling assistant. "
+    "You may call only the tools in the tool list. "
+    "You do not choose slots, move bookings, invent facts, or confirm an apply. "
+    "The scheduling engine decides every move. "
+    "schedule_apply_replan waits for a human Confirm click and you must not "
+    "claim it has been confirmed. "
+    "Narrate only facts that tool results contain. "
     "Keep answers under 120 words."
 )
 
@@ -258,6 +271,51 @@ def _bedrock_converse(messages: List[Dict[str, Any]]) -> Optional[str]:
             model, region, _redact(request_id), latency_ms, _last_error,
         )
         return None
+
+
+def agent_converse(messages: List[Dict[str, Any]], tool_config: Dict[str, Any]) -> Dict[str, Any]:
+    """One tool-using Converse call. Does not consult SER_LLM_MODE.
+
+    The HTTP handler refuses this when Bedrock is off. A stub client injected
+    with set_client_factory is used as-is. The bearer token is never logged.
+    Returns the Converse response with ok=True, or {ok: False, error: ...}.
+    """
+    global _last_error
+    model = bedrock_model_id()
+    region = bedrock_region()
+    started = time.perf_counter()
+    request_id = ""
+    try:
+        client = _make_client()
+        resp = client.converse(
+            modelId=model,
+            system=[{"text": AGENT_SYSTEM_PROMPT}],
+            messages=messages,
+            toolConfig=tool_config,
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.0},
+        )
+        request_id = str((resp.get("ResponseMetadata") or {}).get("RequestId") or "")
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _last_error = ""
+        _audit_bedrock(
+            result="ok", model=model, region=region, request_id=request_id,
+            latency_ms=latency_ms,
+        )
+        out = dict(resp)
+        out["ok"] = True
+        return out
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _last_error = _redact(f"{type(exc).__name__}: {exc}")
+        _audit_bedrock(
+            result="error", model=model, region=region, request_id=request_id,
+            latency_ms=latency_ms, error=_last_error,
+        )
+        log.warning(
+            "Bedrock agent Converse failed model=%s region=%s request_id=%s latency_ms=%s error=%s",
+            model, region, _redact(request_id), latency_ms, _last_error,
+        )
+        return {"ok": False, "error": _last_error}
 
 
 def _messages(*user_payloads: Dict[str, Any]) -> List[Dict[str, Any]]:

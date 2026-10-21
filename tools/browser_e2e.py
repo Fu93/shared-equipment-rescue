@@ -104,13 +104,15 @@ def boot_servers():
         os.remove(DBP)
     env = dict(os.environ)
     env["SER_DB_PATH"] = DBP
+    env.setdefault("SER_DEMO_DATE", "2026-10-20")
+    env.setdefault("SER_DEMO_TZ", "Europe/London")
     _PROCS.append(subprocess.Popen(
         [sys.executable, "-X", "utf8", MCP_BOOT, DBP], env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         **_popen_kwargs()))
     _PROCS.append(subprocess.Popen(
         [sys.executable, "-X", "utf8", "app.py", "--port", "8080"],
-        cwd=os.path.join(ROOT, "web"),
+        cwd=os.path.join(ROOT, "web"), env=env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         **_popen_kwargs()))
     import httpx

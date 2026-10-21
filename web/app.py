@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import urllib.parse
 from typing import Optional
 
@@ -219,7 +220,19 @@ async def serve_home(request: Request) -> HTMLResponse:
         return JSONResponse({"error": denial}, status_code=403)
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"),
               "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+        html = f.read()
+    # app.py lives in web/, so the package root is not on sys.path until added.
+    # Same values the MCP process bound at import. Start both processes with
+    # the same SER_DEMO_DATE and SER_DEMO_TZ, or leave both unset.
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from mcp_server.constants import DEMO_DATE, DEMO_TZ, DEMO_TZ_OFFSET
+    html = (html
+            .replace("__SER_DEMO_DATE__", DEMO_DATE)
+            .replace("__SER_DEMO_TZ__", DEMO_TZ)
+            .replace("__SER_DEMO_OFFSET__", DEMO_TZ_OFFSET))
+    return HTMLResponse(content=html)
 
 
 @app.get("/metrics")
@@ -259,6 +272,33 @@ async def serve_metrics(request: Request) -> Response:
     except Exception as exc:
         stats["server"] = {"error": str(exc)[:120]}
     return JSONResponse(stats)
+
+
+@app.post("/agent/step")
+@app.post("/agent/result")
+async def proxy_agent(request: Request) -> Response:
+    """Forward one agent step to the MCP server. The browser still executes tools."""
+    denial = validate_transport_headers(request)
+    if denial is not None:
+        return JSONResponse({"error": denial}, status_code=403)
+    client = bounded_client()
+    host, port = upstream_target(request)
+    headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in HOP_BY_HOP_REQ
+    }
+    url = f"http://{host}:{port}{request.url.path}"
+    try:
+        upstream = await client.post(url, content=await request.body(), headers=headers)
+    except httpx.TimeoutException:
+        return JSONResponse({"error": "MCP server did not respond in time", "bedrock": False},
+                            status_code=504)
+    except httpx.TransportError:
+        return JSONResponse({"error": "MCP server unreachable", "bedrock": False},
+                            status_code=502)
+    media = upstream.headers.get("content-type", "application/json")
+    return Response(content=upstream.content, status_code=upstream.status_code, media_type=media)
 
 
 _started_mono = _time.monotonic()
