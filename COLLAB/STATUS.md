@@ -1,3 +1,18 @@
+## 2026-10-21 14:00 — Lead round 9d — **P0：瀏覽器 E2E 從來不可能失敗（假綠 20/20）＋ 4 個真缺陷**（commit `4f153d6`）
+- **P0 假綠**：`tools/browser_e2e.py` 的 helper 簽名是 `check(num, cond, label)`，但 20 個呼叫點都只傳兩個參數 `(condition, label)` → **condition 被丟掉，label 落進 `cond` 槽位**，而 label 永遠是非空字串，`if cond:` 恆真。整套「20/20 PASS」**與 UI 狀態無關**，我們自己多輪 STATUS 也把它當證據引用。
+- **另一個 P0**：同一檔的 `MCP_BOOT` 指向 `%TEMP%\ser_mcp_dev_server2.py`——**此檔在 repo 內不存在、也沒有任何程式產生它**。乾淨 clone 上 MCP 伺服器根本沒起來，頁面顯示 "not connected"，而 E2E 仍報全綠。已改用 repo 內的 `tools/dev_server2.py`。
+- **修好 helper 後立刻見真章**：真實結果是 **6/20**。逐條改寫斷言使它對照 UI 真正渲染的內容（CSS 會把設備名轉大寫、預約列沒有狀態詞、outage banner 實為 "Outage recorded: …"、確認卡按鈕是 `Cancel`/`#confirmNo` 而非 "No"）→ **23 條真檢查，23/23 PASS**。
+- **同時查出 4 個真產品缺陷（皆經實測確認並修）**：
+  1. **「switched equipment (–)」**：reasonText() 把 reason 的 from/to（設備 **ID**）當時間範圍格式化 → 聊天、確認卡、套用結果三處都顯示空區間。改為 `CONFOCAL A → CONFOCAL B`。
+  2. **「Working…」遮罩壓住確認卡**：遮罩 z-index 2000 > 卡片 1000，而套用呼叫尚未返回時伺服器就發 elicitation → 評審要在轉圈底下確認重排。卡片打開即隱藏遮罩，且堆疊順序改為 1999/2100。
+  3. **dev console 注入未轉義** `method`（伺服器可控）→ `method`/`status` 一併 escapeHtml。
+  4. **proposal 快取 key 不對**：存 `outage_id`、讀 `plan_id` → 確認卡的主查詢永遠落空（靠 fallback 才偶然正確）。
+  5. **`web/app.py` 上游無逾時**：共用 httpx client `timeout=None` → 上游半死時 `/metrics` 與所有 JSON 代理呼叫**永久掛起**（瀏覽器就卡住）。SSE 保持無上限，其餘改用有界逾時並回 504。
+- **Mutation 驗證（證明門禁真的有判別力）**：注入「空設備區間」「遮罩壓卡」「z-index 迴歸」「未轉義 method」四個缺陷，套件**每次都 FAIL**；未注入的樹 23/23 綠。
+- `tests/test_web_proxy.py` 改為**子行程**啟動 MCP（不再用背景執行緒），避免與其他測試模組共享 pytest 行程的 event loop / db 模組狀態；先前 4 個 errors 的真因是上游無逾時導致就緒探測掛死。
+- 本輪 gates：**pytest 66/66（連跑 3 次穩定，25s/次）· final_e2e 19/19 ALL PASS exit=0 · browser E2E 23/23（提權實跑）**。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交、**加 git remote 並 push**（目前無 remote，評審無法 clone）。期限 2026-10-23。
+
 ## 2026-10-21 12:50 — Lead round 9c — **P0 產品缺陷：web 層非 8080 埠全站 403**（+ web 代理測試空白補上，pytest 60→66）
 - **P0 真缺陷**：`web/app.py` 的 `ALLOWED_HOSTS` 硬編碼 `127.0.0.1:8080` / `localhost:8080`，而 `app.py` CLI 明確提供 `--port` 參數。**只要不跑 8080，/ 、/metrics、/mcp 全部 403**——包括靜態頁本身。評審若換 port（避免埠衝突）會看到「網站壞掉」。
 - **修法（不削弱防護）**：改用與 MCP 層一致的語義——**任何 loopback 的 host/origin 都允許**（含任何 port），非 loopback 一律 403。防 DNS-rebinding 的關鍵屬性是「必須 loopback」，不是固定 port 號。MCP 層本來就是這個語義（`_loopback_host_allowed`），web 層是唯一不一致的一層。

@@ -150,7 +150,7 @@ observability endpoint exists on both layers (MCP :8765 and the web proxy
 version, table row counts and journal mode — JSON, `no-store`, before any MCP
 session resources are consumed. The UI ships a **deep link** (`/#audit` /
 `/?view=audit`) that opens the audit tab pre-connect, covered by a
-**Playwright suite** (20 browser checks covering the full outage→propose→confirm→apply loop: identity select, panels, equipment report, dev console, confirm card, decline path, applied v3, responsive layout).
+**Playwright suite** (23 browser checks covering the full outage→propose→confirm→apply loop: identity select, panels, equipment report, dev console, confirm card, decline path, applied v3, responsive layout - mutation-verified: each check was shown to fail when its defect is injected).
 
 
 ```bash
