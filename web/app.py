@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import urllib.parse
 from typing import Optional
 
 import httpx
@@ -80,9 +81,59 @@ def _load_allowed_origins() -> set:
 
 
 ALLOWED_ORIGINS = _load_allowed_origins()
-ALLOWED_HOSTS = {
-    "127.0.0.1:8080", "localhost:8080", "127.0.0.1", "localhost",
-}
+# Host policy mirrors the MCP server's guard: any *loopback* host:port is a
+# legitimate target, because the shell is started with a configurable
+# --port and the demo may run on 8080, 8099, ... A hard-coded "127.0.0.1:8080"
+# would make every other documented port answer 403 on every route. The
+# security property that matters is loopback-ness (a rebound DNS name is
+# exactly the attack the guard exists for), not a fixed port number.
+ALLOWED_HOST_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _loopback_host_allowed(host: str) -> bool:
+    """True for loopback host[:port] values; empty Host is tolerated."""
+    if not host:
+        return True
+    if host.startswith("["):                      # IPv6 bracket form [::1]:8080
+        inside, _, _rest = host.partition("]")
+        return inside.lstrip("[") in {"::1", "127.0.0.1"} or inside == "localhost"
+    name, sep, _port = host.rpartition(":")
+    if not sep:
+        name = host
+    if name in ALLOWED_HOST_NAMES:
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
+def _origin_allowed(origin: str) -> bool:
+    """Exact-match allowlist, plus any loopback http(s) origin.
+
+    The browser's Origin for a same-origin fetch is the page's own origin,
+    which carries whatever --port the shell was started with. Loopback
+    origins are therefore accepted in addition to the explicit allowlist.
+    """
+    if origin in ALLOWED_ORIGINS:
+        return True
+    try:
+        parsed = urllib.parse.urlparse(origin)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname or ""
+    if host in ALLOWED_HOST_NAMES:
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 # Per-IP token bucket, same budget as the MCP server guard: ~4 req/s, burst 16.
 # A normal browser session (poll + calls) stays under 1 req/s sustained.
@@ -125,10 +176,10 @@ _rate_limiter = _TokenBucket(rate_per_sec=4.0, burst=16)
 def validate_transport_headers(request: Request) -> Optional[str]:
     """Return a 403 message if Origin/Host fail, else None (allowed)."""
     origin = request.headers.get("origin")
-    if origin is not None and origin not in ALLOWED_ORIGINS:
+    if origin is not None and not _origin_allowed(origin):
         return f"unrecognized Origin {origin!r}"
     host = request.headers.get("host", "")
-    if host and host not in ALLOWED_HOSTS:
+    if not _loopback_host_allowed(host):
         return f"unrecognized Host {host!r}"
     return None
 

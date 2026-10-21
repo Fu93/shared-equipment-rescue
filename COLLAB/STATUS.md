@@ -1,3 +1,12 @@
+## 2026-10-21 12:50 — Lead round 9c — **P0 產品缺陷：web 層非 8080 埠全站 403**（+ web 代理測試空白補上，pytest 60→66）
+- **P0 真缺陷**：`web/app.py` 的 `ALLOWED_HOSTS` 硬編碼 `127.0.0.1:8080` / `localhost:8080`，而 `app.py` CLI 明確提供 `--port` 參數。**只要不跑 8080，/ 、/metrics、/mcp 全部 403**——包括靜態頁本身。評審若換 port（避免埠衝突）會看到「網站壞掉」。
+- **修法（不削弱防護）**：改用與 MCP 層一致的語義——**任何 loopback 的 host/origin 都允許**（含任何 port），非 loopback 一律 403。防 DNS-rebinding 的關鍵屬性是「必須 loopback」，不是固定 port 號。MCP 層本來就是這個語義（`_loopback_host_allowed`），web 層是唯一不一致的一層。
+- **實測證據**（修前）：web 起在 8099 → `GET /` 403、`/metrics` 403、靜態資源 200（StaticFiles 未掛 guard）——症狀極易被誤判為「只有頁面壞掉」。修後 21/21 探針全綠，且 `evil.example` / `attacker.example:8099` / `192.168.1.10:8080` 仍全數 403。
+- **web 層此前零測試覆蓋** → 新增 `tests/test_web_proxy.py`（6 條）：loopback 任何埠皆允許、外來 host/origin 仍 403、真實 MCP client 經代理可拿 8 工具並呼叫 schedule_get、/metrics 聚合兩層且 burst=16、MCP 掛掉回 502 + 啟動提示。
+- 另修：前端審計子代理（兩次啟動皆失敗、無結論）由 lead 自行完成——proxy 錯誤映射、SSE relay、靜態快取標頭、/metrics 聚合、502 降級、bundle 新鮮度（esbuild 重建 SHA-256 雙重一致）皆已驗證。
+- 本輪 gates：**pytest 66/66 · final_e2e 19/19 ALL PASS exit=0 · browser E2E 20/20（提權實跑）**。
+- 剩餘人類項目不變：Demo 影片 <3:00、Devpost 提交、**加 git remote 並 push**（目前無 remote，評審無法 clone）。期限 2026-10-23。
+
 ## 2026-10-21 12:35 — Lead round 9b — 身分命名對齊伺服器・web burst 對齊・平手規則回歸鎖（pytest 58→60）
 - **命名真實性（cross-audit P2）**：UI 寫「Priya (Manager)」，伺服器與凍結契約 fixture 寫「Facility Manager」。契約端不可動 → 改 UI 端：identity select、roleBadge、chat 錯誤訊息、`web/src/mcp-client.mjs` 的 DEMO_TOKENS、browser_e2e 斷言、OUTBOX 錨點清單全部改為 `Facility Manager`。
 - **bundle 新鮮度雙重驗證**：以 esbuild 重建 `web/static/mcp-client.bundle.js`；子代理獨立重建的 SHA-256 **與提交版完全相同**（`F18166A6…`）→ 提交物非陳舊產物。

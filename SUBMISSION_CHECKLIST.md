@@ -1,7 +1,7 @@
-# ✅ Amazon Build, Ship, Shape Hackathon — 提交檢查清單
+﻿# ✅ Amazon Build, Ship, Shape Hackathon — 提交檢查清單
 
 > **截止**：2026-10-23 12:00 太平洋時間 = 20:00 倫敦時間。
-> **本清單以最新實況為準**（2026-10-21：60 tests green；web 瀏覽器 E2E 20/20 PASS；server CLI E2E 19/19；深度 debug 探針全綠）。
+> **本清單以最新實況為準**（2026-10-21：66 tests green；web 瀏覽器 E2E 20/20 PASS；server CLI E2E 19/19；深度 debug 探針全綠）。
 
 ## 1. 必交項目
 
@@ -42,7 +42,7 @@
 ## 4. 收尾順序
 
 1. ~~Partner / web/ 改 MCP client~~ ✅ Lead 完成（`c3249ef`，E2E 20/20）
-2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（60 passed）
+2. ✅ 重跑 `python -X utf8 -m pytest tests/ -q`（66 passed）
 3. 錄影（腳本上表）→ 上傳 YouTube 公開 **[僅人類可做]**
 4. Devpost 填寫：intro、Alexa+ 主賽道、AWS Builder 勾選、連 repo＋影片 **[僅人類可做]**
 5. 10/22 全流程彩排一次；10/23 只做緩衝

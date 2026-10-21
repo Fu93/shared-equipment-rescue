@@ -100,7 +100,7 @@ Browser (web/)                MCP host/agent (Bedrock or any MCP client)      Th
 
 ```bash
 python -X utf8 tools/dev_server2.py     # MCP server on http://127.0.0.1:8765/mcp (fresh temp DB each boot)
-cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080
+cd web && python app.py --port 8080     # web shell on http://127.0.0.1:8080 (any --port works)
 ```
 
 Or run the MCP server against a persistent DB file: `python -X utf8 -m mcp_server`.
@@ -118,7 +118,7 @@ DNS-rebinding browsers / cross-site attackers before any MCP logic executes:
 
 | layer | check | behavior |
 |---|---|---|
-| web proxy (`web/app.py`) | `Origin` + `Host` allowlist | present-but-unrecognized → JSON-RPC error `-32002`, HTTP 403; absent Origin allowed (native MCP clients send none) |
+| web proxy (`web/app.py`) | `Origin` + `Host` allowlist | present-but-unrecognized → JSON-RPC error `-32002`, HTTP 403; absent Origin allowed (native MCP clients send none). Any **loopback** origin/host is accepted on any port, so `--port` other than 8080 works; foreign hosts/origins stay blocked (DNS-rebinding defence) |
 | MCP server (`mcp_server/server.py`) | pure-ASGI `TransportGuardMiddleware` wrapping the Streamable HTTP app | same policy for anyone bypassing the proxy |
 
 Plus a structured **audit trail** (`audit_log` SQLite table, `schedule_audit_get`
@@ -154,7 +154,7 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 
 
 ```bash
-python -X utf8 -m pytest tests/ -q      # 60 passed
+python -X utf8 -m pytest tests/ -q      # 66 passed
 ```
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
@@ -163,6 +163,7 @@ python -X utf8 -m pytest tests/ -q      # 60 passed
 - `test_server.py` (8): **real uvicorn + real MCP client** over Streamable HTTP — token/tool tables, full outage→propose→apply→`already_applied` loop, elicitation declined leaves the plan untouched, `plan_stale` after version bump, reset, and a **crash/restart cycle** that proves outage + pending plan survive a server restart (subprocess, same SQLite file).
 - `test_llm.py` (10): mode selection with/without credentials, prohibition wording, graceful Bedrock failure fallback.
 - `test_accountability.py` (7): real-client audit-trail checks — researcher public-visibility SQL boundary, concurrent double-apply applies exactly once (TOCTOU), 403 origin/host rejections land in the hash-chained transport ledger, the ledger survives `reset_demo_data`, a replayed apply leaves an audit row with the chain verifying green, audit pagination drops no row at any page boundary (limit 1/2/3 walks over 5 seeded rows), and `debug_confirm` elicitation outcomes are audited.
+- `test_web_proxy.py` (6): the `web/` layer — loopback `Origin`/`Host` accepted on any port, foreign hosts/origins still 403, a real MCP client relayed through the proxy sees all 8 tools and a working `schedule_get`, `/metrics` aggregates both layers, and a dead upstream returns 502 with a restart hint.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
 
