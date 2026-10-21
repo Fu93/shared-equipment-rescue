@@ -117,6 +117,9 @@ ALLOWED_HOST_NAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
 def _load_allowed_hosts() -> set:
     """SER_ALLOWED_HOSTS: comma-separated exact public hostnames (no port, no wildcard).
 
+    A Host header matches when its name is listed; any port is accepted only
+    if it is numeric and in 1-65535 ("name:abc" and "name:" are refused).
+
     Unset means loopback only, as before. A hosted demo (for example
     shared-equipment-rescue.onrender.com) lists its own public name here so
     the guard still rejects every other Host a rebound DNS name could send.
@@ -132,6 +135,10 @@ def _load_allowed_hosts() -> set:
 EXTRA_ALLOWED_HOSTS = _load_allowed_hosts()
 
 
+def _valid_port(port: str) -> bool:
+    return port.isascii() and port.isdigit() and 0 < int(port) <= 65535
+
+
 def _loopback_host_allowed(host: str) -> bool:
     """True for loopback host[:port] values; empty Host is tolerated."""
     if not host:
@@ -143,7 +150,9 @@ def _loopback_host_allowed(host: str) -> bool:
     if not sep:
         name = host
     if EXTRA_ALLOWED_HOSTS and name.lower().rstrip(".") in EXTRA_ALLOWED_HOSTS:
-        return True
+        # The name matched; a port, when present, must be a real one
+        # (1-65535, digits only). "name:abc" or "name:" is refused.
+        return not sep or _valid_port(_port)
     if name in ALLOWED_HOST_NAMES:
         return True
     try:

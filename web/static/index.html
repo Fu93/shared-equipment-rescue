@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Always the light instrument palette: opt out of Chrome's Auto Dark Mode
+         for Web Contents and of OS-dark styling. ?theme=dark is the opt-in. -->
+    <meta name="color-scheme" content="only light">
+    <script>if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';</script>
     <title>Shared Equipment Rescue — MCP Demo</title>
     <style>
         /* ---- local fonts (offline-safe) ---- */
@@ -26,6 +30,10 @@
             src: url('/static/fonts/IBMPlexSans-600.woff2') format('woff2');
             font-weight: 600; font-style: normal; font-display: swap;
         }
+
+        /* Light only, whatever the OS or browser prefers: no forced darkening. */
+        :root { color-scheme: only light; }
+        html[data-theme="dark"] { color-scheme: dark; }
 
         /* ============ Shared Equipment Rescue — instrument-plaque design language ============ */
         :root {
@@ -272,7 +280,7 @@
         .chain-bad { color: var(--alert); font-weight: 700; }
         .ledger-warn { color: var(--hold); font-weight: 600; }
         .ledger-ok { color: var(--micro); font-weight: 600; }
-        @media (prefers-color-scheme: dark) {
+        html[data-theme="dark"] {   /* opt-in dark (?theme=dark); never from the OS */
             .audit-wrap { background: var(--paper-dim); }
             .a-what b { color: var(--ink); }
             .a-when { color: #8E948A; }
@@ -393,9 +401,9 @@
             .confirm-card, .overlay, .message, #loading { animation: none !important; }
         }
 
-        /* ---------- dark mode (follows OS) ---------- */
-        @media (prefers-color-scheme: dark) {
-            :root {
+        /* ---------- dark mode: opt-in with ?theme=dark, never from the OS ---------- */
+        html[data-theme="dark"] {
+            & {
                 --paper: #22261F;   /* dark lab bench */
                 --ink:   #E8E4DA;
                 --rule:  #434A3E;
@@ -1079,9 +1087,13 @@
                 el.textContent = parts.length
                     ? '\u26a0 guarded ' + parts.join(' ')
                     : '\u2713 transport clean';
+                // host_probe = the hosting platform's bare HEAD / port probe:
+                // refused and ledgered like any other, but normal, so neutral.
+                const probes = ev.host_probe ? '; ' + ev.host_probe +
+                    ' platform port probe(s) refused (HEAD /)' : '';
                 el.title = 'Transport ledger (hash-chained, survives demo reset): ' +
                     (t.rows) + ' rejection rows; head ' +
-                    (t.head_hash || '').slice(0, 12) + '\u2026';
+                    (t.head_hash || '').slice(0, 12) + '\u2026' + probes;
             } catch (e) { /* metrics unavailable — badge stays quiet */ }
         }
         document.addEventListener('visibilitychange', () => {

@@ -283,6 +283,32 @@ def _client_key(scope) -> str:
     return peer_host
 
 
+def _is_platform_probe(scope, headers: dict) -> bool:
+    """A bare liveness probe: HEAD / from loopback, no Origin, token, cookie or body.
+
+    Hosting platforms (Render's port scan at boot) send exactly this to every
+    port they find listening. It is still refused with 403 and still written to
+    the transport ledger, under its own event name "host_probe", so /metrics
+    keeps counting it while the page does not raise an amber warning for normal
+    platform behaviour. Opt-in with SER_CLASSIFY_PLATFORM_PROBES=1; unset keeps
+    every refused Host under "host", as before. Anything that could carry a
+    request (GET, POST, a path, a token) is never a probe.
+    """
+    if os.environ.get("SER_CLASSIFY_PLATFORM_PROBES") != "1":
+        return False
+    if scope.get("method") != "HEAD" or (scope.get("path") or "") != "/":
+        return False
+    if scope.get("query_string"):
+        return False
+    peer = scope.get("client")
+    if not peer or not _is_loopback(peer[0]):
+        return False
+    for name in ("origin", "authorization", "cookie", "content-type"):
+        if headers.get(name):
+            return False
+    return (headers.get("content-length") or "0") == "0"
+
+
 class TransportGuardMiddleware:
     """Pure-ASGI 403 gate: validates Origin/Host before ANY route handles.
 
@@ -309,7 +335,8 @@ class TransportGuardMiddleware:
             return
         host = headers.get("host", "")
         if host and not _loopback_host_allowed(host):
-            await self._reject(scope, send, peer, "host",
+            event = "host_probe" if _is_platform_probe(scope, headers) else "host"
+            await self._reject(scope, send, peer, event,
                                f"unrecognized Host {host!r}")
             return
         session_aux = _session_aux_request(scope)

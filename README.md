@@ -20,6 +20,16 @@ Amazon "Build, Ship, Shape" hackathon entry — **Alexa+ primary track** + **AWS
 
 The page served from `web/` is a **simulated Alexa+ experience**: a browser MCP client, not a physical Alexa device.
 
+## Try it live
+
+Hosted demo: **<https://shared-equipment-rescue.onrender.com>**. Nothing to install.
+
+1. **Voice:** in desktop Chrome or Edge, press **Mic**, allow the microphone, and say *"Alexa, Confocal A is down until 4pm, please sort out the bookings"*. No microphone? Open <https://shared-equipment-rescue.onrender.com/?utterance=Alexa%2C%20Confocal%20A%20is%20down%20until%204pm%2C%20please%20sort%20out%20the%20bookings>, which sends the same line through the page's simulation hook.
+2. The page reports the outage (`v2`) and proposes plan P1. Press **Apply P1**: the Confirm card is a real MCP elicitation. Press **Confirm** and the board becomes `v3`.
+3. **Reset demo data** puts the board back to `v1`.
+
+Notes: every visitor shares one demo state, so press **Reset demo data** if someone else has already applied the plan. Bedrock is off on the hosted demo; the chat is labelled `Fallback: pattern parser (Bedrock off)`. Speech recognition is the browser's own Web Speech API: the page calls no cloud speech service itself (Chrome may process the audio on Google's servers). All bookings, people, and instruments are synthetic, and the demo tokens are fake.
+
 ## Testing instructions for judges
 
 Clean-clone setup, then the MCP server (spec 2025-11-25, Streamable HTTP) and the web client. Open <http://127.0.0.1:8080>. That page is the simulated Alexa+ experience. It sends `initialize`, `tools/list`, and `tools/call` over Streamable HTTP. It is not connected to the Alexa+ developer console.
@@ -74,7 +84,7 @@ Open <http://127.0.0.1:8080>. The right-hand MCP protocol console should show a 
 python -m pytest tests/ -q
 ```
 
-Measured on Linux after `pip install -r requirements-dev.txt`. On CPython 3.11.17, 3.12.3, and 3.13.16, with the Playwright browser installed (`python -m playwright install chromium`): **111 passed**, 1 skipped. Without that browser: **103 passed**, 9 skipped. Without a browser the skips are `test_video_walk.py`, `test_screenshots_current.py`, the browser tests in `test_voice_hook.py`, and `test_bedrock_converse_live` (`AWS_BEARER_TOKEN_BEDROCK` was unset). With the browser, only `test_bedrock_converse_live` skipped. The rate-limit commit before this stub and queue fix, on the same runs, was **108 passed** with the browser and **102 passed**, 7 skipped, without it. The verification commit before that rate-limit fix, on the same runs, was **99 passed** with the browser and **96 passed**, 4 skipped, without it. The tool-loop commit before those fixes, on the same runs, was **90 passed** with the browser and **87 passed**, 4 skipped, without it. The narration-only commit before this tool loop, on the same Linux 3.11 and 3.13 runs, was **73 passed** with the browser and **71 passed**, 3 skipped, without it. The commit before those Bedrock tests was **70 passed** with the browser and **68 passed**, 2 skipped, without it.
+Measured on Linux after `pip install -r requirements-dev.txt`. On CPython 3.11.17, 3.12.8, and 3.13.5, with the Playwright browser installed (`python -m playwright install chromium`): **129 passed**, 1 skipped. Without that browser: **121 passed**, 9 skipped. The commit before the hosted-demo change, on CPython 3.11.17, 3.12.3, and 3.13.16, was **111 passed** with the browser and **103 passed**, 9 skipped, without it. Without a browser the skips are `test_video_walk.py`, `test_screenshots_current.py`, the browser tests in `test_voice_hook.py`, and `test_bedrock_converse_live` (`AWS_BEARER_TOKEN_BEDROCK` was unset). With the browser, only `test_bedrock_converse_live` skipped. The rate-limit commit before this stub and queue fix, on the same runs, was **108 passed** with the browser and **102 passed**, 7 skipped, without it. The verification commit before that rate-limit fix, on the same runs, was **99 passed** with the browser and **96 passed**, 4 skipped, without it. The tool-loop commit before those fixes, on the same runs, was **90 passed** with the browser and **87 passed**, 4 skipped, without it. The narration-only commit before this tool loop, on the same Linux 3.11 and 3.13 runs, was **73 passed** with the browser and **71 passed**, 3 skipped, without it. The commit before those Bedrock tests was **70 passed** with the browser and **68 passed**, 2 skipped, without it.
 
 ### What is real, and what is simulated
 
@@ -304,7 +314,7 @@ session resources are consumed. The UI ships a **deep link** (`/#audit` /
 python -X utf8 -m pytest tests/ -q
 ```
 
-Measured on Linux. CPython 3.11.17, 3.12.3, and 3.13.16 with the Playwright browser installed: **111 passed**, 1 skipped. Without that browser: **103 passed**, 9 skipped. Before this stub and queue fix the rate-limit commit was **108 passed** with the browser and **102 passed**, 7 skipped, without it. Before that rate-limit fix the verification commit was **99 passed** with the browser and **96 passed**, 4 skipped, without it. Before those fixes the tool-loop commit was **90 passed** with the browser and **87 passed**, 4 skipped, without it. Before that tool loop the same 3.11 and 3.13 runs were **73 passed** with the browser and **71 passed**, 3 skipped, without it, and before those Bedrock tests **70 passed** with the browser and **68 passed**, 2 skipped, without it.
+Measured on Linux. CPython 3.11.17, 3.12.8, and 3.13.5 with the Playwright browser installed: **129 passed**, 1 skipped. Without that browser: **121 passed**, 9 skipped. Before the hosted-demo change the stub and queue fix, on CPython 3.11.17, 3.12.3, and 3.13.16, was **111 passed** with the browser and **103 passed**, 9 skipped, without it. Before this stub and queue fix the rate-limit commit was **108 passed** with the browser and **102 passed**, 7 skipped, without it. Before that rate-limit fix the verification commit was **99 passed** with the browser and **96 passed**, 4 skipped, without it. Before those fixes the tool-loop commit was **90 passed** with the browser and **87 passed**, 4 skipped, without it. Before that tool loop the same 3.11 and 3.13 runs were **73 passed** with the browser and **71 passed**, 3 skipped, without it, and before those Bedrock tests **70 passed** with the browser and **68 passed**, 2 skipped, without it.
 
 - `test_engine.py` (12): slot search, buffer semantics, permissions, the B4-scoping engine fix, outage-visible-to-search regression, and the choice-key tie-break (earliest start wins; the original equipment wins an exact tie).
 - `test_engine_edges.py` (6): boundary edges — half-open intervals, zero-duration, zero-buffer adjacency, unknown equipment.
@@ -315,6 +325,7 @@ Measured on Linux. CPython 3.11.17, 3.12.3, and 3.13.16 with the Playwright brow
 - `test_web_proxy.py` (6): the `web/` layer — loopback `Origin`/`Host` accepted on any port, foreign hosts/origins still 403, a real MCP client relayed through the proxy sees all 8 tools and a working `schedule_get`, `/metrics` aggregates both layers, and a dead upstream returns 502 with a restart hint.
 - `test_video_walk.py` (1, 29 scene checks): drives the real UI through **the demo video script beat by beat** — the six bookings and two confocals, the version bump to v2 with the outage banner, both proposed moves with machine-readable reasons, the confirm card naming the human-in-the-loop rule, Cancel leaving the version untouched, Confirm reaching v3, the identity switch masking other people's slots as "Occupied", and the audit tab with zone-labelled timestamps — so the recording cannot show something the narration does not claim. Needs Playwright; skips cleanly where no browser can launch.
 - `test_screenshots_current.py` (1): the committed screenshots in `docs/screenshots/` must still show what the build renders today — it re-renders the same scenes and compares the recorded text, so the images in the README cannot silently go stale. Needs Playwright; skips cleanly where no browser can launch.
+- `test_hosted_deploy.py` (18): the opt-in hosted-demo settings — public Host allowlist with numeric-port check, edge client-IP header (never X-Forwarded-For), proxy overwrites `x-ser-client-ip`, the loopback-only server key, the platform `HEAD /` probe ledgered as `host_probe` while real foreign hosts stay `host`, `deploy/render_start.sh` startup timeout and exit reporting, and the light-only page.
 - `test_readme_i18n.py` (2): the English and Chinese sections of this file must agree — same commands, same images, same identifiers, same numbers. A bilingual README that drifts is worse than none, because a reader cannot tell. The second test checks the live rendered page, so the language switch is proven to jump.
 
 Windows note: use `python -X utf8` to keep pytest output clean.
@@ -366,6 +377,16 @@ MIT — see LICENSE. Synthetic demo data; not production-hardened.
 Amazon「Build, Ship, Shape」黑客松參賽作品 —— **Alexa+ 主賽道** ＋ **AWS Builder 挑戰**（Amazon Nova Lite，經 Bedrock Converse API）。看板重新整理用的是 scripted 句子。在模擬頁面上，有上限的工具迴圈可以提出 MCP 呼叫。每一次搬移都由引擎決定，Confirm 點擊仍是人類的。
 
 `web/` 提供的頁面是 **simulated Alexa+ experience**（模擬的 Alexa+ 體驗）：瀏覽器裡的 MCP 客戶端，不是實體 Alexa 裝置。
+
+## 線上試用
+
+託管的 demo：**<https://shared-equipment-rescue.onrender.com>**。不需要安裝任何東西。
+
+1. **語音：**在桌機版 Chrome 或 Edge 按 **Mic**，允許使用麥克風，然後說 *"Alexa, Confocal A is down until 4pm, please sort out the bookings"*。沒有麥克風？開啟 <https://shared-equipment-rescue.onrender.com/?utterance=Alexa%2C%20Confocal%20A%20is%20down%20until%204pm%2C%20please%20sort%20out%20the%20bookings>，它會經由頁面的模擬 hook 送出同一句話。
+2. 頁面會記錄故障（`v2`）並提出方案 P1。按 **Apply P1**：Confirm 卡片是真正的 MCP elicitation。按 **Confirm**，看板會變成 `v3`。
+3. **Reset demo data** 會把看板恢復成 `v1`。
+
+注意：所有訪客共用同一份 demo 狀態，如果別人已經套用了方案，請按 **Reset demo data**。託管的 demo 關閉了 Bedrock；聊天區標示為 `Fallback: pattern parser (Bedrock off)`。語音辨識用的是瀏覽器自己的 Web Speech API：頁面本身不呼叫任何雲端語音服務（Chrome 可能會在 Google 的伺服器上處理音訊）。所有預約、人員與儀器都是合成資料，demo token 也是假的。
 
 ## 評審測試說明
 
@@ -421,7 +442,7 @@ cd web && python app.py --port 8080
 python -m pytest tests/ -q
 ```
 
-在 Linux 上，於 `pip install -r requirements-dev.txt` 之後量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器（`python -m playwright install chromium`）：**111 passed**、1 skipped。沒有那個瀏覽器：**103 passed**、9 skipped。沒有瀏覽器時跳過的是 `test_video_walk.py`、`test_screenshots_current.py`、`test_voice_hook.py` 裡的瀏覽器測試，以及 `test_bedrock_converse_live`（當時 `AWS_BEARER_TOKEN_BEDROCK` 沒有設定）。有瀏覽器時只跳過 `test_bedrock_converse_live`。這次 stub 與佇列修正之前的速率限制 commit，在同樣的測試上是有瀏覽器 **108 passed**、沒有瀏覽器 **102 passed**、7 skipped。那次速率限制修正之前的驗證 commit，在同樣的測試上是有瀏覽器 **99 passed**、沒有瀏覽器 **96 passed**、4 skipped。那些修正之前的工具迴圈 commit，在同樣的測試上是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前、只有敘事的那個 commit，在同樣的 Linux 3.11 與 3.13 上是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped。那些 Bedrock 測試加入之前的 commit 是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
+在 Linux 上，於 `pip install -r requirements-dev.txt` 之後量測。CPython 3.11.17、3.12.8 與 3.13.5，已安裝 Playwright 瀏覽器（`python -m playwright install chromium`）：**129 passed**、1 skipped。沒有那個瀏覽器：**121 passed**、9 skipped。託管 demo 變更之前的 commit，在 CPython 3.11.17、3.12.3 與 3.13.16 上是有瀏覽器 **111 passed**、沒有瀏覽器 **103 passed**、9 skipped。沒有瀏覽器時跳過的是 `test_video_walk.py`、`test_screenshots_current.py`、`test_voice_hook.py` 裡的瀏覽器測試，以及 `test_bedrock_converse_live`（當時 `AWS_BEARER_TOKEN_BEDROCK` 沒有設定）。有瀏覽器時只跳過 `test_bedrock_converse_live`。這次 stub 與佇列修正之前的速率限制 commit，在同樣的測試上是有瀏覽器 **108 passed**、沒有瀏覽器 **102 passed**、7 skipped。那次速率限制修正之前的驗證 commit，在同樣的測試上是有瀏覽器 **99 passed**、沒有瀏覽器 **96 passed**、4 skipped。那些修正之前的工具迴圈 commit，在同樣的測試上是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前、只有敘事的那個 commit，在同樣的 Linux 3.11 與 3.13 上是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped。那些 Bedrock 測試加入之前的 commit 是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
 
 ### 什麼是真的，什麼是模擬的
 
@@ -608,7 +629,7 @@ Tier 3 加項：每一筆審計紀錄還會存一份事件的**結構化 JSON �
 python -X utf8 -m pytest tests/ -q
 ```
 
-在 Linux 上量測。CPython 3.11.17、3.12.3 與 3.13.16，已安裝 Playwright 瀏覽器：**111 passed**、1 skipped。沒有那個瀏覽器：**103 passed**、9 skipped。這次 stub 與佇列修正之前的速率限制 commit 是有瀏覽器 **108 passed**、沒有瀏覽器 **102 passed**、7 skipped。那次速率限制修正之前的驗證 commit 是有瀏覽器 **99 passed**、沒有瀏覽器 **96 passed**、4 skipped。那些修正之前的工具迴圈 commit 是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前，同樣的 3.11 與 3.13 是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped；那些 Bedrock 測試加入之前是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
+在 Linux 上量測。CPython 3.11.17、3.12.8 與 3.13.5，已安裝 Playwright 瀏覽器：**129 passed**、1 skipped。沒有那個瀏覽器：**121 passed**、9 skipped。託管 demo 變更之前，stub 與佇列修正那次在 CPython 3.11.17、3.12.3 與 3.13.16 上是有瀏覽器 **111 passed**、沒有瀏覽器 **103 passed**、9 skipped。這次 stub 與佇列修正之前的速率限制 commit 是有瀏覽器 **108 passed**、沒有瀏覽器 **102 passed**、7 skipped。那次速率限制修正之前的驗證 commit 是有瀏覽器 **99 passed**、沒有瀏覽器 **96 passed**、4 skipped。那些修正之前的工具迴圈 commit 是有瀏覽器 **90 passed**、沒有瀏覽器 **87 passed**、4 skipped。這個工具迴圈之前，同樣的 3.11 與 3.13 是有瀏覽器 **73 passed**、沒有瀏覽器 **71 passed**、3 skipped；那些 Bedrock 測試加入之前是有瀏覽器 **70 passed**、沒有瀏覽器 **68 passed**、2 skipped。
 
 - `test_engine.py`（12）：時段搜尋、緩衝語意、權限、B4 範圍的引擎修正、故障可見於搜尋的回歸，以及選擇鍵的平手規則（最早開始者勝；完全平手時留在原設備）。
 - `test_engine_edges.py`（6）：邊界 —— 半開區間、零時長、零緩衝相鄰、未知設備。
@@ -619,6 +640,7 @@ python -X utf8 -m pytest tests/ -q
 - `test_web_proxy.py`（6）：`web/` 那一層 —— loopback 的 `Origin`/`Host` 在任何 port 都接受、外部 host/origin 依然 403、經代理轉發的真 MCP client 看得到全部 8 個工具且 `schedule_get` 可用、`/metrics` 聚合兩層，以及上游掛掉時回 502 加上重啟提示。
 - `test_video_walk.py`（1 項測試、29 條場景檢查）：**逐幕**驅動真實 UI 走完 demo 影片腳本 —— 六個預約與兩台共軛焦、版本跳 v2 與故障橫幅、兩筆異動與機器可讀原因、確認卡寫明人類在環規則、取消後版本不變、確認後到 v3、切换身分後他人槽位顯示「Occupied」、審計分頁的時區標註 —— 所以錄影不可能出現旁白沒說的畫面。需要 Playwright；沒有瀏覽器時會乾淨跳過。
 - `test_screenshots_current.py`（1）：`docs/screenshots/` 裡已提交的截圖必須仍反映當前版本 —— 它會重跑同樣的場景並比對記錄下來的文字，所以 README 的圖不可能在無聲無息中過期。需要 Playwright；沒有瀏覽器時會乾淨跳過。
+- `test_hosted_deploy.py`（18）：託管 demo 的選用設定 —— 公開 Host 允許清單與數字 port 檢查、edge 設定的 client IP 標頭（絕不用 X-Forwarded-For）、proxy 覆寫 `x-ser-client-ip`、只信任 loopback 的伺服器 key、平台的 `HEAD /` 探測記為 `host_probe` 而真正的外來 Host 仍記為 `host`、`deploy/render_start.sh` 的啟動逾時與結束回報，以及只用淺色的頁面。
 - `test_readme_i18n.py`（2）：本檔的英文與中文兩節必須一致 —— 同樣的指令、同樣的圖片、同樣的識別字、同樣的數字。會漂移的雙語 README 比沒有更糟，因為讀者無從分辨。第二條測試會檢查線上算繪後的頁面，確保語言切換確實會跳轉。
 
 Windows 請用 `python -X utf8`，pytest 輸出才不會亂碼。
